@@ -1,0 +1,47 @@
+{
+  "media": {
+    "@ref": "/mnt/dtv/Domestic_Movies/Movie.2023.mkv",
+    "track": [
+      {
+        "@type": "General",
+        "Format": "Matroska"
+      },
+      {
+        "@type": "Video",
+        "Format": "HEVC",
+        "Language": "en"
+      },
+      {
+        "@type": "Audio",
+        "Format": "TrueHD",
+        "Language": "en",
+        "Channels": "8",
+        "Default": "Yes"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "en",
+        "Title": "English",
+        "Default": "Yes",
+        "Forced": "No"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "en",
+        "Title": "English SDH",
+        "Default": "No",
+        "Forced": "No"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "fr",
+        "Title": "French",
+        "Default": "No",
+        "Forced": "No"
+      }
+    ]
+  }
+}

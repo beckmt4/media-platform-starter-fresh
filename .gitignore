@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .runtime/
 coverage.xml
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,10 @@
+version: 1
+
+server:
+  host: "0.0.0.0"
+  port: 8001
+  log_level: info
+
+# Path to the directory containing policy YAML files.
+# Defaults to <repo-root>/config/policies when POLICY_DIR env var is unset.
+policy_dir: "/path/to/config/policies"

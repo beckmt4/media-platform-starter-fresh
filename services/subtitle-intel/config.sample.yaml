@@ -1,0 +1,12 @@
+version: 1
+
+server:
+  host: "0.0.0.0"
+  port: 8002
+  log_level: info
+
+# Path to the mediainfo binary. Defaults to whatever is on PATH.
+# mediainfo_bin: "/usr/bin/mediainfo"
+
+# Timeout in seconds for mediainfo subprocess calls.
+mediainfo_timeout_seconds: 60

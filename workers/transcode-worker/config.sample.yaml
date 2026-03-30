@@ -1,0 +1,8 @@
+version: 1
+
+ffmpeg_bin: "ffmpeg"      # path to ffmpeg binary, or just "ffmpeg" if on PATH
+ffprobe_bin: "ffprobe"
+mkvmerge_bin: "mkvmerge"
+
+# Hardware encoding. Requires NVIDIA GPU and drivers.
+prefer_nvenc: false

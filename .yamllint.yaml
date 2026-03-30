@@ -1,0 +1,30 @@
+extends: default
+
+rules:
+  # GitHub Actions expressions (${{ }}) and long run: blocks routinely exceed 80.
+  line-length:
+    max: 120
+    level: warning
+
+  # Allow both --- document start styles.
+  document-start: disable
+
+  # Single-quoted strings are fine alongside double-quoted.
+  quoted-strings: disable
+
+  # Inline comments with one space are acceptable.
+  comments:
+    min-spaces-from-content: 1
+
+  # Disable new-lines check — cross-platform repos may have CRLF on Windows.
+  new-lines: disable
+
+  # Allow both true/false and on/off (GitHub Actions uses 'on').
+  truthy:
+    allowed-values: ["true", "false", "yes", "no", "on", "off"]
+    check-keys: false
+
+ignore: |
+  .venv/
+  .git/
+  *.egg-info/

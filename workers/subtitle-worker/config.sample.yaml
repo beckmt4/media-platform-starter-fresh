@@ -1,0 +1,9 @@
+version: 1
+
+whisper_model: "large-v3"    # tiny / base / small / medium / large-v3
+whisper_device: "cuda"        # cuda / cpu
+whisper_compute_type: "float16"
+
+# Default output directory when not specified in the job.
+# Defaults to the same directory as the source file.
+# output_dir: "/mnt/container/media-work/subtitle-scratch"

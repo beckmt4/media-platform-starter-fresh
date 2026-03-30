@@ -1,0 +1,26 @@
+{
+  "media": {
+    "@ref": "/mnt/itv/adult/title.mkv",
+    "track": [
+      {
+        "@type": "General",
+        "Format": "Matroska"
+      },
+      {
+        "@type": "Video",
+        "Format": "AVC"
+      },
+      {
+        "@type": "Audio",
+        "Format": "AAC",
+        "Channels": "2"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Default": "Yes",
+        "Forced": "No"
+      }
+    ]
+  }
+}

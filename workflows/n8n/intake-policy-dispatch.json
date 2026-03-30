@@ -1,0 +1,442 @@
+{
+  "name": "intake-policy-dispatch",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## intake-policy-dispatch\n\n**Trigger**: POST /webhook/arr-import  (Sonarr/Radarr on-import event)\n\n**Inputs**: file_path, title, domain, arr_event\n\n**Outputs**\n- `review` — item queued for human decision; no media mutation\n- `dispatched` — subtitle and/or transcode job submitted to workers\n\n**State transitions**\n- inbox → review   (requires_review=true in PolicyEvaluationResult)\n- inbox → active   (all dispatchable actions submitted successfully)\n- inbox → error    (unhandled exception; managed by n8n error workflow)\n\n**Retries**: 2 attempts, 1 s backoff (configure per HTTP node after import)\n\n**Timeout**: 30 s per HTTP call\n\n**Concurrency**: max 1 active execution (set in workflow Settings)\n\n**Review gate**: PolicyEvaluationResult.requires_review=true blocks all dispatch and routes item to catalog review queue\n\n**Rollback / quarantine**: this workflow dispatches jobs only — no media files are mutated here; workers own mutation; on unrecoverable error the n8n error workflow should PATCH item state → error\n\n**Logging fields**: item_id, file_path, domain, job_id, action_kind, status, duration_seconds",
+        "height": 460,
+        "width": 560,
+        "color": 7
+      },
+      "id": "n001",
+      "name": "Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-240, -500]
+    },
+    {
+      "parameters": {
+        "content": "**Service base URLs**\nDefine these in n8n → Settings → Variables.\n\n| Variable | Default (Docker Compose) |\n|---|---|\n| `CATALOG_API_URL` | `http://catalog-api:8000` |\n| `POLICY_ENGINE_URL` | `http://media-policy-engine:8000` |\n| `SUBTITLE_INTEL_URL` | `http://subtitle-intel:8000` |\n| `SUBTITLE_WORKER_URL` | `http://subtitle-worker:8000` |\n| `TRANSCODE_WORKER_URL` | `http://transcode-worker:8000` |\n\nAll services expose `GET /health` and their primary `POST` endpoint.\nsubtle-intel must expose `POST /scan` returning a MediaFacts-compatible body.",
+        "height": 260,
+        "width": 500,
+        "color": 5
+      },
+      "id": "n002",
+      "name": "Service URLs",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "arr-import",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n003",
+      "name": "Arr Import Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "webhookId": "arr-import-intake"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a001",
+              "name": "file_path",
+              "value": "={{ $json.body?.file_path ?? $json.body?.movie?.folderPath ?? $json.body?.series?.path ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a002",
+              "name": "title",
+              "value": "={{ $json.body?.title ?? $json.body?.movie?.title ?? $json.body?.series?.title ?? 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "a003",
+              "name": "domain",
+              "value": "={{ $json.body?.domain ?? 'domestic_live_action_movie' }}",
+              "type": "string"
+            },
+            {
+              "id": "a004",
+              "name": "arr_event",
+              "value": "={{ $json.body?.eventType ?? 'unknown' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "n004",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [460, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.CATALOG_API_URL ?? 'http://catalog-api:8000') + '/items' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, domain: $json.domain, file_path: $json.file_path, state: 'inbox' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n005",
+      "name": "Register Item",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.SUBTITLE_INTEL_URL ?? 'http://subtitle-intel:8000') + '/scan' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ file_path: $('Normalize Payload').first().json.file_path, domain: $('Normalize Payload').first().json.domain }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n006",
+      "name": "Scan Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.POLICY_ENGINE_URL ?? 'http://media-policy-engine:8000') + '/evaluate' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n007",
+      "name": "Evaluate Policy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c001",
+              "leftValue": "={{ $json.requires_review }}",
+              "rightValue": "",
+              "operator": {
+                "name": "filter.operator.true",
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n008",
+      "name": "Requires Review?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.CATALOG_API_URL ?? 'http://catalog-api:8000') + '/review-queue' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ item_id: $('Register Item').first().json.id, reason: 'Policy evaluation requires review. Notes: ' + ($json.evaluation_notes ?? []).join('; ') }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n009",
+      "name": "Create Review Entry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, -200]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ ($vars.CATALOG_API_URL ?? 'http://catalog-api:8000') + '/items/' + $('Register Item').first().json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'review' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n010",
+      "name": "Update State Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1780, -200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', outcome: 'review', item_id: $('Register Item').first().json.id }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "n011",
+      "name": "Respond Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, -200]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const evaluation = $input.first().json;\nconst itemId = $('Register Item').first().json.id;\nconst filePath = $('Normalize Payload').first().json.file_path;\nconst domain = evaluation.domain;\n\nconst subtitleAction = (evaluation.actions ?? []).find(\n  a => a.kind === 'generate_english_subtitles'\n) ?? null;\n\nconst transcodeAction = (evaluation.actions ?? []).find(\n  a => a.kind === 'flag_for_transcode'\n) ?? null;\n\nreturn [{\n  json: {\n    item_id: itemId,\n    file_path: filePath,\n    domain: domain,\n    subtitle_action: subtitleAction,\n    transcode_action: transcodeAction,\n    evaluation_notes: evaluation.evaluation_notes ?? []\n  }\n}];"
+      },
+      "id": "n012",
+      "name": "Extract Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c002",
+              "leftValue": "={{ $json.subtitle_action !== null && $json.subtitle_action !== undefined }}",
+              "rightValue": "",
+              "operator": {
+                "name": "filter.operator.true",
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n013",
+      "name": "Has Subtitle Action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.SUBTITLE_WORKER_URL ?? 'http://subtitle-worker:8000') + '/jobs' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ item_id: $json.item_id, file_path: $json.file_path, job_type: 'generate', target_language: 'en', dry_run: false }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n014",
+      "name": "Dispatch Subtitle Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c003",
+              "leftValue": "={{ $('Extract Actions').first().json.transcode_action !== null && $('Extract Actions').first().json.transcode_action !== undefined }}",
+              "rightValue": "",
+              "operator": {
+                "name": "filter.operator.true",
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "n015",
+      "name": "Has Transcode Action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2220, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($vars.TRANSCODE_WORKER_URL ?? 'http://transcode-worker:8000') + '/jobs' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ item_id: $('Extract Actions').first().json.item_id, file_path: $('Extract Actions').first().json.file_path, output_path: $('Extract Actions').first().json.file_path.split('.').slice(0, -1).join('.') + '.hevc.mkv', target_codec: 'hevc', container: 'mkv', allow_nvenc: true, copy_streams: true, dry_run: false }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n016",
+      "name": "Dispatch Transcode Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2440, 100]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ ($vars.CATALOG_API_URL ?? 'http://catalog-api:8000') + '/items/' + $('Extract Actions').first().json.item_id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'active' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "n017",
+      "name": "Update State Active",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2660, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', outcome: 'dispatched', item_id: $('Extract Actions').first().json.item_id }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "n018",
+      "name": "Respond Dispatched",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2880, 200]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Arr Import Webhook": {
+      "main": [
+        [{"node": "Normalize Payload", "type": "main", "index": 0}]
+      ]
+    },
+    "Normalize Payload": {
+      "main": [
+        [{"node": "Register Item", "type": "main", "index": 0}]
+      ]
+    },
+    "Register Item": {
+      "main": [
+        [{"node": "Scan Media", "type": "main", "index": 0}]
+      ]
+    },
+    "Scan Media": {
+      "main": [
+        [{"node": "Evaluate Policy", "type": "main", "index": 0}]
+      ]
+    },
+    "Evaluate Policy": {
+      "main": [
+        [{"node": "Requires Review?", "type": "main", "index": 0}]
+      ]
+    },
+    "Requires Review?": {
+      "main": [
+        [{"node": "Create Review Entry", "type": "main", "index": 0}],
+        [{"node": "Extract Actions", "type": "main", "index": 0}]
+      ]
+    },
+    "Create Review Entry": {
+      "main": [
+        [{"node": "Update State Review", "type": "main", "index": 0}]
+      ]
+    },
+    "Update State Review": {
+      "main": [
+        [{"node": "Respond Review", "type": "main", "index": 0}]
+      ]
+    },
+    "Extract Actions": {
+      "main": [
+        [{"node": "Has Subtitle Action?", "type": "main", "index": 0}]
+      ]
+    },
+    "Has Subtitle Action?": {
+      "main": [
+        [{"node": "Dispatch Subtitle Job", "type": "main", "index": 0}],
+        [{"node": "Has Transcode Action?", "type": "main", "index": 0}]
+      ]
+    },
+    "Dispatch Subtitle Job": {
+      "main": [
+        [{"node": "Has Transcode Action?", "type": "main", "index": 0}]
+      ]
+    },
+    "Has Transcode Action?": {
+      "main": [
+        [{"node": "Dispatch Transcode Job", "type": "main", "index": 0}],
+        [{"node": "Update State Active", "type": "main", "index": 0}]
+      ]
+    },
+    "Dispatch Transcode Job": {
+      "main": [
+        [{"node": "Update State Active", "type": "main", "index": 0}]
+      ]
+    },
+    "Update State Active": {
+      "main": [
+        [{"node": "Respond Dispatched", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "maxConcurrency": 1
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": ""
+  },
+  "id": "intake-policy-dispatch",
+  "tags": [
+    {"id": "tag001", "name": "media-platform"},
+    {"id": "tag002", "name": "intake"}
+  ]
+}
