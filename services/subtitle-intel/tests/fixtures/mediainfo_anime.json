@@ -1,0 +1,65 @@
+{
+  "media": {
+    "@ref": "/mnt/itv/Anime_Series/Show/Season 01/Show.S01E01.mkv",
+    "track": [
+      {
+        "@type": "General",
+        "Format": "Matroska",
+        "FileSize": "2147483648",
+        "Duration": "1440.000"
+      },
+      {
+        "@type": "Video",
+        "Format": "HEVC",
+        "Language": "ja"
+      },
+      {
+        "@type": "Audio",
+        "Format": "AAC",
+        "Language": "ja",
+        "Channels": "2",
+        "Default": "Yes"
+      },
+      {
+        "@type": "Audio",
+        "Format": "AAC",
+        "Language": "en",
+        "Channels": "2",
+        "Title": "English Dub",
+        "Default": "No"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "en",
+        "Title": "English",
+        "Default": "Yes",
+        "Forced": "No"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "en",
+        "Title": "Signs & Songs",
+        "Default": "No",
+        "Forced": "No"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "ja",
+        "Title": "Japanese",
+        "Default": "No",
+        "Forced": "No"
+      },
+      {
+        "@type": "Text",
+        "Format": "UTF-8",
+        "Language": "en",
+        "Title": "Forced",
+        "Default": "No",
+        "Forced": "Yes"
+      }
+    ]
+  }
+}

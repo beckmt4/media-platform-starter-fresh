@@ -1,0 +1,22 @@
+{
+  "media": {
+    "@ref": "/mnt/dtv/Domestic_Movies/NoSubs.mkv",
+    "track": [
+      {
+        "@type": "General",
+        "Format": "Matroska"
+      },
+      {
+        "@type": "Video",
+        "Format": "HEVC",
+        "Language": "en"
+      },
+      {
+        "@type": "Audio",
+        "Format": "AAC",
+        "Language": "en",
+        "Channels": "2"
+      }
+    ]
+  }
+}
