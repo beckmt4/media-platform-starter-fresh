@@ -115,6 +115,17 @@
     },
     {
       "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Bridge subtitle-intel ScanResult → media-policy-engine MediaFacts.\n// ScanResult.subtitle_tracks[].detected_language maps to MediaFacts.subtitle_tracks[].language.\n// Video and audio facts are not available from subtitle-intel; safe defaults are used.\nconst scanResult = $input.first().json;\nconst normalized = $('Normalize Payload').first().json;\n\nconst subtitleTracks = (scanResult.subtitle_tracks ?? []).map(t => ({\n  track_index: t.track_index,\n  language: t.detected_language ?? 'unknown',\n  confidence: t.confidence ?? 0.0,\n  track_type: t.track_type ?? 'full'\n}));\n\n// Default VideoFacts: arr webhook has no codec info; h264 is the conservative default\n// (triggers transcode evaluation for domains where HEVC is the target).\nconst video = { codec: 'h264', is_remux: false, is_hdr: false, bitrate_mbps: null };\n\n// Infer original language from domain until a full media-inspect service is wired in.\nconst domain = normalized.domain ?? 'domestic_live_action_movie';\nconst _nonEnglish = ['jav_adult','international_live_action_movie','international_live_action_tv',\n  'international_animated_movie','international_animated_tv','anime_movie','anime_series'];\nconst detected_original_language = _nonEnglish.includes(domain) ? 'ja' : 'en';\n\nreturn [{ json: {\n  domain,\n  file_path: normalized.file_path,\n  detected_original_language,\n  video,\n  audio_tracks: [],\n  subtitle_tracks: subtitleTracks,\n  catalog_tags: []\n} }];"
+      },
+      "id": "n006b",
+      "name": "Build MediaFacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1010, 0]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "={{ ($vars.POLICY_ENGINE_URL ?? 'http://media-policy-engine:8000') + '/evaluate' }}",
         "sendBody": true,
@@ -128,7 +139,7 @@
       "name": "Evaluate Policy",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1120, 0]
+      "position": [1230, 0]
     },
     {
       "parameters": {
@@ -257,7 +268,7 @@
         "url": "={{ ($vars.SUBTITLE_WORKER_URL ?? 'http://subtitle-worker:8000') + '/jobs' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ item_id: $json.item_id, file_path: $json.file_path, job_type: 'generate', target_language: 'en', dry_run: false }) }}",
+        "jsonBody": "={{ JSON.stringify({ item_id: $json.item_id, file_path: $json.file_path, job_type: 'generate', target_language: 'en', dry_run: ($vars.DRY_RUN ?? false) }) }}",
         "options": {
           "timeout": 30000
         }
@@ -305,7 +316,7 @@
         "url": "={{ ($vars.TRANSCODE_WORKER_URL ?? 'http://transcode-worker:8000') + '/jobs' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ item_id: $('Extract Actions').first().json.item_id, file_path: $('Extract Actions').first().json.file_path, output_path: $('Extract Actions').first().json.file_path.split('.').slice(0, -1).join('.') + '.hevc.mkv', target_codec: 'hevc', container: 'mkv', allow_nvenc: true, copy_streams: true, dry_run: false }) }}",
+        "jsonBody": "={{ JSON.stringify({ item_id: $('Extract Actions').first().json.item_id, file_path: $('Extract Actions').first().json.file_path, output_path: $('Extract Actions').first().json.file_path.split('.').slice(0, -1).join('.') + '.hevc.mkv', target_codec: 'hevc', container: 'mkv', allow_nvenc: true, copy_streams: true, dry_run: ($vars.DRY_RUN ?? false) }) }}",
         "options": {
           "timeout": 30000
         }
@@ -366,6 +377,11 @@
       ]
     },
     "Scan Media": {
+      "main": [
+        [{"node": "Build MediaFacts", "type": "main", "index": 0}]
+      ]
+    },
+    "Build MediaFacts": {
       "main": [
         [{"node": "Evaluate Policy", "type": "main", "index": 0}]
       ]

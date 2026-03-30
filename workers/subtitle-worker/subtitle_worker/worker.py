@@ -65,6 +65,12 @@ class SubtitleWorker:
                 **kwargs,
             )
 
+        if job.dry_run:
+            return _result(
+                status=JobStatus.skipped,
+                notes=[f"dry_run=True — would run {job.job_type.value} on {job.file_path!r}"],
+            )
+
         # Validate source file exists
         src = Path(job.file_path)
         if not src.exists():
@@ -80,12 +86,6 @@ class SubtitleWorker:
                 status=JobStatus.tool_unavailable,
                 error_message=f"required tools not on PATH: {', '.join(missing)}",
                 notes=["install faster-whisper and ensure 'whisper' is on PATH"],
-            )
-
-        if job.dry_run:
-            return _result(
-                status=JobStatus.skipped,
-                notes=[f"dry_run=True — would run {job.job_type.value} on {job.file_path!r}"],
             )
 
         # --- Real execution would happen here ---

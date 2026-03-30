@@ -76,6 +76,21 @@ class TranscodeWorker:
                 ),
             )
 
+        encoder = _pick_encoder(job.target_codec, job.allow_nvenc)
+
+        if job.dry_run:
+            src_for_size = Path(job.file_path)
+            size_before = src_for_size.stat().st_size if src_for_size.exists() else None
+            return _result(
+                status=JobStatus.skipped,
+                codec_used=encoder,
+                size_bytes_before=size_before,
+                notes=[
+                    f"dry_run=True — would encode with {encoder!r}",
+                    f"output would be written to {job.output_path!r}",
+                ],
+            )
+
         src = Path(job.file_path)
         if not src.exists():
             return _result(
@@ -91,19 +106,7 @@ class TranscodeWorker:
                 notes=["install ffmpeg and ffprobe"],
             )
 
-        encoder = _pick_encoder(job.target_codec, job.allow_nvenc)
         size_before = src.stat().st_size
-
-        if job.dry_run:
-            return _result(
-                status=JobStatus.skipped,
-                codec_used=encoder,
-                size_bytes_before=size_before,
-                notes=[
-                    f"dry_run=True — would encode with {encoder!r}",
-                    f"output would be written to {job.output_path!r}",
-                ],
-            )
 
         # --- Real execution would happen here ---
         # ffmpeg invocation (not implemented in stub):
