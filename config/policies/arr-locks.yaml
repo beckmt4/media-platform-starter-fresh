@@ -1,0 +1,10 @@
+version: 1
+rules:
+  manually_sourced:
+    apply_tags: [manual-source, locked, no-upgrade]
+    monitored: false
+    block_upgrades: true
+  subtitle_complete:
+    apply_tags: [subtitle-complete]
+  review_required:
+    apply_tags: [needs-review]

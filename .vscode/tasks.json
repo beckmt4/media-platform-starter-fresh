@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "validate-config",
+      "type": "shell",
+      "command": "python scripts/validate_config.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "run-tests",
+      "type": "shell",
+      "command": "pytest -q",
+      "problemMatcher": []
+    }
+  ]
+}

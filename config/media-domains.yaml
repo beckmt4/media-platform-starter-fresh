@@ -1,0 +1,35 @@
+version: 1
+domains:
+  domestic_live_action_movie:
+    type: movie
+    category: domestic_live_action
+  domestic_live_action_tv:
+    type: series
+    category: domestic_live_action
+  international_live_action_movie:
+    type: movie
+    category: international_live_action
+  international_live_action_tv:
+    type: series
+    category: international_live_action
+  domestic_animated_movie:
+    type: movie
+    category: domestic_animation
+  domestic_animated_tv:
+    type: series
+    category: domestic_animation
+  international_animated_movie:
+    type: movie
+    category: international_animation
+  international_animated_tv:
+    type: series
+    category: international_animation
+  anime_movie:
+    type: movie
+    category: anime
+  anime_series:
+    type: series
+    category: anime
+  jav_adult:
+    type: scene_or_movie
+    category: adult

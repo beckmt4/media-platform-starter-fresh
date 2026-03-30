@@ -1,0 +1,25 @@
+version: 1
+universal:
+  target_video_codec: hevc
+  container: mkv
+  skip_if_already_hevc: true
+  protect_remux: true
+  protect_high_bitrate_hdr_when_gpu_budget_is_poor: true
+
+domains:
+  domestic_live_action:
+    allow_nvenc: true
+  international_live_action:
+    allow_nvenc: true
+  domestic_animation:
+    allow_nvenc: true
+    tolerate_higher_compression: true
+  international_animation:
+    allow_nvenc: true
+    tolerate_higher_compression: true
+  anime:
+    allow_nvenc: true
+    manual_review_for_banding_risk: true
+  adult:
+    allow_nvenc: true
+    skip_low_value_retranscodes: true

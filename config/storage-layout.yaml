@@ -1,0 +1,24 @@
+version: 1
+authoritative_paths:
+  runtime:
+    intake_root: /mnt/container/media-work/inbox
+    review_root: /mnt/container/media-work/review
+    quarantine_root: /mnt/container/media-work/quarantine
+    reports_root: /mnt/container/media-work/reports
+    manifests_root: /mnt/container/media-work/manifests
+    subtitle_scratch_root: /mnt/container/media-work/subtitle-scratch
+    workflow_state_root: /mnt/container/media-work/state
+  bulk_media:
+    domestic_movies: /mnt/dtv/Domestic_Movies
+    domestic_series: /mnt/dtv/Domestic_Series
+    domestic_concerts: /mnt/dtv/Domestic_Concerts
+    animated_movies: /mnt/itv/Animated_Movies
+    animated_series: /mnt/itv/Animated_Series
+    anime_movies: /mnt/itv/Anime_Movies
+    anime_series: /mnt/itv/Anime_Series
+    international_movies: /mnt/itv/International_Movies
+    international_series: /mnt/itv/International_Series
+    adult: /mnt/itv/adult
+  scratch:
+    tdarr_server: /mnt/torrent/tdarr
+    z4_media_01: /scratch/tdarr

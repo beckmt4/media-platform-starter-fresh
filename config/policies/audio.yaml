@@ -1,0 +1,22 @@
+version: 1
+universal:
+  preserve_original_language: true
+  preserve_english_if_available: true
+  remove_commentary_by_default: true
+  create_stereo_fallback_when_missing: true
+
+domains:
+  domestic_live_action:
+    preferred_original_languages: [eng]
+  international_live_action:
+    preferred_english: true
+  domestic_animation:
+    preferred_original_languages: [eng]
+  international_animation:
+    preferred_english: true
+  anime:
+    preserve_japanese_or_detected_original: true
+    preserve_english_if_available: true
+  adult:
+    preserve_detected_original: true
+    preserve_english_if_available: true

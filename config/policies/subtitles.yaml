@@ -1,0 +1,27 @@
+version: 1
+universal:
+  keep_forced: true
+  keep_english: true
+  quarantine_unknown_language: true
+  delete_exact_duplicates: true
+  keep_original_language_subtitles_when_present: true
+
+domains:
+  domestic_live_action:
+    keep_sdh_english: true
+  international_live_action:
+    keep_original_language_subtitles_when_present: true
+    keep_english: true
+  domestic_animation:
+    keep_english: true
+  international_animation:
+    keep_original_language_subtitles_when_present: true
+    keep_english: true
+  anime:
+    keep_signs_songs_when_present: true
+    keep_full_english: true
+    keep_original_language_subtitles_when_present: true
+  adult:
+    keep_english: true
+    generate_english_if_missing: true
+    require_review_below_confidence: 0.82

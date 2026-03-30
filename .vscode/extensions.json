@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "anthropic.claude-code",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "redhat.vscode-yaml",
+    "EditorConfig.EditorConfig",
+    "github.vscode-github-actions",
+    "eamodio.gitlens"
+  ]
+}
