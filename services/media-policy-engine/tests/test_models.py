@@ -9,7 +9,6 @@ from media_policy_engine.models import (
     MediaDomain,
     MediaFacts,
     PolicyActionKind,
-    StreamTarget,
     SubtitleTrackFacts,
     SubtitleTrackType,
     VideoFacts,

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 
-class MediaDomain(str, Enum):
+class MediaDomain(StrEnum):
     domestic_live_action_movie = "domestic_live_action_movie"
     domestic_live_action_tv = "domestic_live_action_tv"
     international_live_action_movie = "international_live_action_movie"
@@ -21,7 +21,7 @@ class MediaDomain(str, Enum):
     jav_adult = "jav_adult"
 
 
-class MediaItemState(str, Enum):
+class MediaItemState(StrEnum):
     inbox = "inbox"
     review = "review"
     quarantine = "quarantine"
@@ -30,7 +30,7 @@ class MediaItemState(str, Enum):
     error = "error"
 
 
-class ArrLockTag(str, Enum):
+class ArrLockTag(StrEnum):
     manual_source = "manual-source"
     locked = "locked"
     no_upgrade = "no-upgrade"
@@ -39,7 +39,7 @@ class ArrLockTag(str, Enum):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class MediaItem(BaseModel):

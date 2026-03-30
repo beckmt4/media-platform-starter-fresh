@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from jav_normalizer.models import NormalizeRequest, ParseStatus
 from jav_normalizer.normalizer import JavNormalizer, _clean
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     pending = "pending"
     running = "running"
     complete = "complete"
@@ -15,7 +15,7 @@ class JobStatus(str, Enum):
     tool_unavailable = "tool_unavailable"
 
 
-class SubtitleJobType(str, Enum):
+class SubtitleJobType(StrEnum):
     generate = "generate"     # run faster-whisper on audio track
     repair = "repair"         # fix malformed/mis-timed existing subtitle
     translate = "translate"   # translate existing subtitle to target language

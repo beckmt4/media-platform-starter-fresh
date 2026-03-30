@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Shared domain enum (must stay in sync with config/media-domains.yaml)
 # ---------------------------------------------------------------------------
 
-class MediaDomain(str, Enum):
+class MediaDomain(StrEnum):
     domestic_live_action_movie = "domestic_live_action_movie"
     domestic_live_action_tv = "domestic_live_action_tv"
     international_live_action_movie = "international_live_action_movie"
@@ -27,7 +26,7 @@ class MediaDomain(str, Enum):
 # Input: inspected media facts
 # ---------------------------------------------------------------------------
 
-class SubtitleTrackType(str, Enum):
+class SubtitleTrackType(StrEnum):
     forced = "forced"
     sdh = "sdh"
     signs_songs = "signs_songs"
@@ -35,7 +34,7 @@ class SubtitleTrackType(str, Enum):
     unknown = "unknown"
 
 
-class AudioTrackType(str, Enum):
+class AudioTrackType(StrEnum):
     original = "original"
     commentary = "commentary"
     stereo_fallback = "stereo_fallback"
@@ -81,7 +80,7 @@ class MediaFacts(BaseModel):
 # Output: policy actions
 # ---------------------------------------------------------------------------
 
-class PolicyActionKind(str, Enum):
+class PolicyActionKind(StrEnum):
     keep_stream = "keep_stream"
     relabel_stream = "relabel_stream"
     quarantine_subtitle = "quarantine_subtitle"
@@ -93,7 +92,7 @@ class PolicyActionKind(str, Enum):
     send_to_review = "send_to_review"
 
 
-class StreamTarget(str, Enum):
+class StreamTarget(StrEnum):
     subtitle = "subtitle"
     audio = "audio"
     video = "video"

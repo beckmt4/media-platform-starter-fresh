@@ -79,7 +79,7 @@ class SubtitleWorker:
             return _result(
                 status=JobStatus.tool_unavailable,
                 error_message=f"required tools not on PATH: {', '.join(missing)}",
-                notes=[f"install faster-whisper and ensure 'whisper' is on PATH"],
+                notes=["install faster-whisper and ensure 'whisper' is on PATH"],
             )
 
         if job.dry_run:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .models import ArrLockState, MediaItem, MediaItemUpdate, ReviewQueueEntry
 
@@ -37,7 +37,7 @@ class CatalogStore:
         data = item.model_dump()
         for field, value in patch.model_dump(exclude_unset=True).items():
             data[field] = value
-        data["updated_at"] = datetime.now(timezone.utc)
+        data["updated_at"] = datetime.now(UTC)
         updated = MediaItem.model_validate(data)
         self._items[item_id] = updated
         return updated
@@ -74,7 +74,7 @@ class CatalogStore:
             return None
         data = entry.model_dump()
         data["resolved"] = True
-        data["resolved_at"] = datetime.now(timezone.utc)
+        data["resolved_at"] = datetime.now(UTC)
         data["resolution_note"] = resolution_note
         resolved = ReviewQueueEntry.model_validate(data)
         self._review_queue[entry_id] = resolved

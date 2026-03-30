@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import pytest
-
 from subtitle_worker.models import JobStatus, SubtitleJob, SubtitleJobResult, SubtitleJobType
-from subtitle_worker.worker import SubtitleWorker, _check_tools, status
+from subtitle_worker.worker import SubtitleWorker, status
 
 worker = SubtitleWorker()
 
@@ -118,7 +113,9 @@ def test_output_path_uses_target_language(tmp_path, monkeypatch):
     import shutil as sh
     # Patch whisper as available so we reach the stub complete path
     original_which = sh.which
-    monkeypatch.setattr(sh, "which", lambda t: "/usr/bin/whisper" if t == "whisper" else original_which(t))
+    monkeypatch.setattr(
+        sh, "which", lambda t: "/usr/bin/whisper" if t == "whisper" else original_which(t)
+    )
     src = tmp_path / "SSIS-123.mkv"
     src.write_bytes(b"fake")
     result = worker.run(_job(file_path=str(src), target_language="en"))

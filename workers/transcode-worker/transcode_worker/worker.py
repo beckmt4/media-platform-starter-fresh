@@ -70,7 +70,10 @@ class TranscodeWorker:
         if Path(job.file_path).resolve() == Path(job.output_path).resolve():
             return _result(
                 status=JobStatus.failed,
-                error_message="output_path must differ from file_path — in-place transcode is not allowed",
+                error_message=(
+                    "output_path must differ from file_path"
+                    " — in-place transcode is not allowed"
+                ),
             )
 
         src = Path(job.file_path)

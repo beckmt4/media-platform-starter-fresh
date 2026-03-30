@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class ParseStatus(str, Enum):
+class ParseStatus(StrEnum):
     ok = "ok"
     no_id_found = "no_id_found"
     ambiguous = "ambiguous"  # multiple candidate IDs found in the same string

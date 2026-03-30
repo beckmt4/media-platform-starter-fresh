@@ -111,7 +111,10 @@ def create_queue_entry(entry: ReviewQueueEntry) -> ReviewQueueEntry:
     if store.get_item(entry.item_id) is None:
         raise HTTPException(status_code=404, detail="item not found")
     created = store.create_queue_entry(entry)
-    log.info("review queue entry created id=%s item_id=%s reason=%r", created.id, created.item_id, created.reason)
+    log.info(
+        "review queue entry created id=%s item_id=%s reason=%r",
+        created.id, created.item_id, created.reason,
+    )
     return created
 
 

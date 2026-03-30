@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from transcode_worker.models import JobStatus, TranscodeJob, TranscodeJobResult
 from transcode_worker.worker import TranscodeWorker, _pick_encoder, status
 
@@ -58,7 +56,9 @@ def test_pick_encoder_sw_hevc(monkeypatch):
 
 def test_pick_encoder_nvenc_when_available(monkeypatch):
     import shutil
-    monkeypatch.setattr(shutil, "which", lambda t: "/usr/bin/nvidia-smi" if t == "nvidia-smi" else None)
+    monkeypatch.setattr(
+        shutil, "which", lambda t: "/usr/bin/nvidia-smi" if t == "nvidia-smi" else None
+    )
     assert _pick_encoder("hevc", allow_nvenc=True) == "hevc_nvenc"
 
 

@@ -11,16 +11,12 @@ from .models import (
     StreamTarget,
     SubtitleTrackFacts,
     SubtitleTrackType,
-    VideoFacts,
 )
 from .policy_loader import (
     AudioDomainPolicy,
-    AudioPolicy,
     LoadedPolicies,
     SubtitleDomainPolicy,
-    SubtitlePolicy,
     TranscodeDomainPolicy,
-    TranscodePolicy,
 )
 
 # Map MediaDomain to the category key used in policy YAML files.
@@ -105,7 +101,11 @@ class PolicyEvaluator:
             )
 
         # adult: generate English if missing
-        if category == "adult" and domain_policy.generate_english_if_missing and not has_english_subtitle:
+        if (
+            category == "adult"
+            and domain_policy.generate_english_if_missing
+            and not has_english_subtitle
+        ):
             actions.append(PolicyAction(
                 kind=PolicyActionKind.generate_english_subtitles,
                 stream_target=StreamTarget.subtitle,
@@ -144,7 +144,10 @@ class PolicyEvaluator:
                 kind=PolicyActionKind.send_to_review,
                 stream_target=StreamTarget.subtitle,
                 track_index=track.track_index,
-                reason=f"subtitle confidence {track.confidence:.2f} below threshold {review_threshold}",
+                reason=(
+                    f"subtitle confidence {track.confidence:.2f}"
+                    f" below threshold {review_threshold}"
+                ),
                 requires_review=True,
             ))
 
@@ -173,7 +176,10 @@ class PolicyEvaluator:
             return actions
 
         # Signs/songs tracks (anime)
-        if track.track_type == SubtitleTrackType.signs_songs and domain_policy.keep_signs_songs_when_present:
+        if (
+            track.track_type == SubtitleTrackType.signs_songs
+            and domain_policy.keep_signs_songs_when_present
+        ):
             actions.append(PolicyAction(
                 kind=PolicyActionKind.keep_stream,
                 stream_target=StreamTarget.subtitle,
@@ -218,7 +224,10 @@ class PolicyEvaluator:
             kind=PolicyActionKind.send_to_review,
             stream_target=StreamTarget.subtitle,
             track_index=track.track_index,
-            reason=f"subtitle track {track.track_index} language={track.language!r} does not match any keep rule",
+            reason=(
+                f"subtitle track {track.track_index} language={track.language!r}"
+                " does not match any keep rule"
+            ),
             requires_review=True,
         ))
         return actions
@@ -244,7 +253,10 @@ class PolicyEvaluator:
             actions.append(PolicyAction(
                 kind=PolicyActionKind.create_stereo_fallback,
                 stream_target=StreamTarget.audio,
-                reason="universal policy: create_stereo_fallback_when_missing — no stereo track found",
+                reason=(
+                    "universal policy: create_stereo_fallback_when_missing"
+                    " — no stereo track found"
+                ),
             ))
             notes.append("queued stereo fallback creation")
 
@@ -278,7 +290,10 @@ class PolicyEvaluator:
             )]
 
         # Original language → keep
-        if track.language == facts.detected_original_language and universal.preserve_original_language:
+        if (
+            track.language == facts.detected_original_language
+            and universal.preserve_original_language
+        ):
             return [PolicyAction(
                 kind=PolicyActionKind.keep_stream,
                 stream_target=StreamTarget.audio,
@@ -300,7 +315,10 @@ class PolicyEvaluator:
             kind=PolicyActionKind.send_to_review,
             stream_target=StreamTarget.audio,
             track_index=track.track_index,
-            reason=f"audio track {track.track_index} language={track.language!r} does not match any keep rule",
+            reason=(
+                f"audio track {track.track_index} language={track.language!r}"
+                " does not match any keep rule"
+            ),
             requires_review=True,
         )]
 
@@ -356,13 +374,21 @@ class PolicyEvaluator:
             return [PolicyAction(
                 kind=PolicyActionKind.send_to_review,
                 stream_target=StreamTarget.video,
-                reason="universal policy: protect_high_bitrate_hdr_when_gpu_budget_is_poor — HDR transcode needs human confirmation",
+                reason=(
+                    "universal policy: protect_high_bitrate_hdr_when_gpu_budget_is_poor"
+                    " — HDR transcode needs human confirmation"
+                ),
                 requires_review=True,
             )]
 
-        nvenc_note = f" (allow_nvenc={domain_policy.allow_nvenc})" if domain_policy.allow_nvenc else ""
+        nvenc_note = (
+            f" (allow_nvenc={domain_policy.allow_nvenc})" if domain_policy.allow_nvenc else ""
+        )
         return [PolicyAction(
             kind=PolicyActionKind.flag_for_transcode,
             stream_target=StreamTarget.video,
-            reason=f"video codec {video.codec!r} is not {universal.target_video_codec!r} — eligible for transcode{nvenc_note}",
+            reason=(
+                f"video codec {video.codec!r} is not {universal.target_video_codec!r}"
+                f" — eligible for transcode{nvenc_note}"
+            ),
         )]

@@ -1,0 +1,17 @@
+# Enforce LF line endings for all text files.
+# This ensures consistent diffs and prevents CRLF noise on Windows.
+* text=auto eol=lf
+
+# Explicitly mark binary files to prevent corruption.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.whl binary
+*.zip binary
+*.tar.gz binary
+*.mkv binary
+*.mp4 binary
+*.srt text eol=lf
+*.ass text eol=lf

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class SubtitleTrackType(str, Enum):
+class SubtitleTrackType(StrEnum):
     forced = "forced"
     sdh = "sdh"
     signs_songs = "signs_songs"
@@ -13,7 +13,7 @@ class SubtitleTrackType(str, Enum):
     unknown = "unknown"
 
 
-class ScanStatus(str, Enum):
+class ScanStatus(StrEnum):
     ok = "ok"
     file_not_found = "file_not_found"
     mediainfo_error = "mediainfo_error"

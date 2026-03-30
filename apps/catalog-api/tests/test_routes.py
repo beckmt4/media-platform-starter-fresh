@@ -101,7 +101,9 @@ def test_update_item_tags():
 
 def test_set_and_get_lock():
     item_id = client.post("/items", json=_make_item()).json()["id"]
-    lock_payload = {"item_id": item_id, "block_upgrades": True, "monitored": False, "tags": ["locked"]}
+    lock_payload = {
+        "item_id": item_id, "block_upgrades": True, "monitored": False, "tags": ["locked"],
+    }
     put_resp = client.put(f"/items/{item_id}/lock", json=lock_payload)
     assert put_resp.status_code == 200
     assert put_resp.json()["block_upgrades"] is True

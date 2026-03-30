@@ -3,13 +3,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 os.environ.setdefault("POLICY_DIR", str(REPO_ROOT / "config" / "policies"))
 
-from media_policy_engine.main import app, _evaluator  # noqa: E402
+from media_policy_engine.main import _evaluator, app  # noqa: E402
 
 # Clear lru_cache so POLICY_DIR env var takes effect
 _evaluator.cache_clear()
