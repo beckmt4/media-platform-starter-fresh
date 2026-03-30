@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 
 from fastapi import FastAPI
@@ -20,13 +21,20 @@ app = FastAPI(title="subtitle-intel", version="0.1.0")
 _scanner = SubtitleScanner()
 
 
+def _status() -> dict:
+    tools = {"mediainfo": bool(shutil.which("mediainfo"))}
+    return {"status": "ok" if tools["mediainfo"] else "degraded", "tools": tools}
+
+
 class HealthResponse(BaseModel):
     status: str
+    tools: dict[str, bool]
 
 
 @app.get("/health", response_model=HealthResponse, tags=["meta"])
 def health() -> HealthResponse:
-    return HealthResponse(status="ok")
+    info = _status()
+    return HealthResponse(status=info["status"], tools=info["tools"])
 
 
 @app.post("/scan", response_model=ScanResult, tags=["scan"])

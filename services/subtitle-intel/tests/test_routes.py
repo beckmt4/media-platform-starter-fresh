@@ -16,10 +16,20 @@ def _load(name: str) -> dict:
     return json.loads((FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
-def test_health():
+def test_health_returns_200():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+
+
+def test_health_has_status_and_tools():
+    body = client.get("/health").json()
+    assert body["status"] in ("ok", "degraded")
+    assert isinstance(body["tools"], dict)
+
+
+def test_health_tools_are_booleans():
+    body = client.get("/health").json()
+    assert isinstance(body["tools"].get("mediainfo"), bool)
 
 
 def test_scan_with_supplied_json_anime():
