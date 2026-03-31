@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 import shutil
+import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from .models import JobStatus, TranscodeJob, TranscodeJobResult
@@ -26,20 +31,58 @@ def _pick_encoder(target_codec: str, allow_nvenc: bool) -> str:
     return _SW_ENCODERS.get(target_codec, f"lib{target_codec}")
 
 
+def _build_ffmpeg_cmd(job: TranscodeJob, encoder: str) -> list[str]:
+    """Build ffmpeg command. Audio and subtitles are always copied; only video is re-encoded."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", job.file_path,
+        "-map", "0",          # copy all streams
+        "-c:v", encoder,      # re-encode video
+        "-c:a", "copy",       # preserve audio — non-negotiable
+        "-c:s", "copy",       # preserve subtitles
+    ]
+    if job.container == "mkv":
+        cmd += ["-f", "matroska"]
+    cmd.append(job.output_path)
+    return cmd
+
+
+def _notify_catalog(item_id: str, catalog_url: str) -> None:
+    """Append transcode-complete tag to catalog item. Never raises."""
+    try:
+        get_req = urllib.request.Request(f"{catalog_url}/items/{item_id}")
+        with urllib.request.urlopen(get_req, timeout=5) as resp:
+            item = json.loads(resp.read())
+        tags = item.get("tags", [])
+        if "transcode-complete" not in tags:
+            tags.append("transcode-complete")
+        item["tags"] = tags
+        patch_data = json.dumps(item).encode()
+        patch_req = urllib.request.Request(
+            f"{catalog_url}/items/{item_id}",
+            data=patch_data,
+            method="PATCH",
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(patch_req, timeout=5)
+        log.info("catalog notified item_id=%s tag=transcode-complete", item_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("catalog notify failed item_id=%s error=%s", item_id, exc)
+
+
 class TranscodeWorker:
     """Stateless transcode job executor.
 
-    Stub behaviour:
     - dry_run=True: validates inputs, resolves encoder, returns skipped.
     - Source == destination: returns failed (never overwrite in place).
     - Source file missing: returns failed.
     - ffmpeg/ffprobe missing: returns tool_unavailable.
-    - Otherwise: would invoke ffmpeg. In this stub returns complete with
-      placeholder result.
+    - ffmpeg non-zero exit: returns failed, output file removed if partial.
+    - ffmpeg timeout: returns failed, output file removed if partial.
+    - Otherwise: invokes ffmpeg, captures output size, notifies catalog.
 
     Source files are never deleted or overwritten. The caller is responsible
     for moving the output to its final location and updating catalog state.
-    Reversibility is enforced by always writing to a separate output_path.
     """
 
     def run(self, job: TranscodeJob) -> TranscodeJobResult:
@@ -107,24 +150,58 @@ class TranscodeWorker:
             )
 
         size_before = src.stat().st_size
+        out = Path(job.output_path)
+        cmd = _build_ffmpeg_cmd(job, encoder)
 
-        # --- Real execution would happen here ---
-        # ffmpeg invocation (not implemented in stub):
-        #   ffmpeg -i <file_path>
-        #          -map 0              (copy all streams)
-        #          -c:v <encoder>      (re-encode video only)
-        #          -c:a copy           (preserve audio — non-negotiable)
-        #          -c:s copy           (preserve subtitles)
-        #          <output_path>
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=7200,  # 2-hour hard limit
+            )
+        except subprocess.CalledProcessError as exc:
+            _cleanup(out)
+            stderr_tail = (exc.stderr or b"")[-1000:].decode(errors="replace")
+            return _result(
+                status=JobStatus.failed,
+                codec_used=encoder,
+                size_bytes_before=size_before,
+                error_message=f"ffmpeg exited with code {exc.returncode}",
+                notes=[f"stderr: {stderr_tail}"],
+            )
+        except subprocess.TimeoutExpired:
+            _cleanup(out)
+            return _result(
+                status=JobStatus.failed,
+                codec_used=encoder,
+                size_bytes_before=size_before,
+                error_message="ffmpeg timed out after 7200 seconds",
+            )
+
+        size_after = out.stat().st_size if out.exists() else None
+
+        catalog_url = os.environ.get("CATALOG_API_URL", "").strip()
+        if catalog_url and job.item_id:
+            _notify_catalog(job.item_id, catalog_url)
 
         return _result(
             status=JobStatus.complete,
             output_path=job.output_path,
             codec_used=encoder,
             size_bytes_before=size_before,
-            size_bytes_after=None,   # populated by real implementation
-            notes=["stub: real ffmpeg execution not implemented — see worker.py"],
+            size_bytes_after=size_after,
         )
+
+
+def _cleanup(path: Path) -> None:
+    """Remove a partial output file, ignoring errors."""
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
 
 
 def status() -> dict:
