@@ -32,4 +32,9 @@
           Mode="ro"
           Description="Adult media share (read-only)."
           Type="Path" Display="always" Required="false" Mask="false">/mnt/user/adult</Config>
+
+  <!-- Environment -->
+  <Config Name="JAV_METADATA_URL" Target="JAV_METADATA_URL" Default=""
+          Description="Base URL of a self-hosted JAV metadata service (e.g. http://javinfo-api:8800). Leave blank to disable enrichment — /enrich will return status=unavailable."
+          Type="Variable" Display="always" Required="false" Mask="false"></Config>
 </Container>

@@ -7,10 +7,6 @@ Tracks:
 - arr lock state (manual-source, block-upgrades, monitored flag)
 - review queue (items flagged for human decision before any mutation)
 
-## Status
-
-Skeleton — in-memory store only. No persistence, no file-system access, no live media.
-
 ## Running locally
 
 ```bash
@@ -38,7 +34,7 @@ ruff check catalog_api tests
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /health | Health check |
+| GET | /health | Health check (includes store backend) |
 | GET | /items | List all media items |
 | POST | /items | Register a new media item |
 | GET | /items/{id} | Get a single media item |
@@ -51,12 +47,22 @@ ruff check catalog_api tests
 
 ## Configuration
 
-Copy `config.sample.yaml` to `config.yaml` and adjust. The `storage.backend`
-key controls which store is used (`memory` is the skeleton default).
+| Variable | Default | Description |
+|---|---|---|
+| `CATALOG_DB_PATH` | _(unset)_ | Path to SQLite database file. When unset, the in-memory store is used (state lost on restart). |
 
-## Next steps
+### Storage backends
 
-- Swap the in-memory store for SQLite or Postgres.
-- Add pagination to list endpoints.
-- Wire up to `services/media-policy-engine` for policy-driven state transitions.
-- Add authentication for homelab network boundary.
+| Backend | When | Use case |
+|---------|------|----------|
+| In-memory | `CATALOG_DB_PATH` unset | Development and tests |
+| SQLite (WAL) | `CATALOG_DB_PATH` set | Production on Unraid (`/data/catalog.db`) |
+
+SQLite uses WAL journal mode and a single-connection write lock. Items are
+stored as JSON blobs — no schema migrations needed when fields are added.
+
+The active backend is logged at startup:
+
+```
+catalog-api store backend=sqlite:/data/catalog.db
+```
