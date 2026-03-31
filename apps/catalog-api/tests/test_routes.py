@@ -9,10 +9,8 @@ from catalog_api.store import store
 
 @pytest.fixture(autouse=True)
 def reset_store():
-    """Wipe in-memory store before each test."""
-    store._items.clear()
-    store._arr_locks.clear()
-    store._review_queue.clear()
+    """Wipe store state before each test."""
+    store.reset()
     yield
 
 

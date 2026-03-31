@@ -5,7 +5,10 @@ server:
   port: 8000
   log_level: info
 
-# Storage backend — "memory" is the only supported value in the skeleton.
-# Replace with "sqlite" or "postgres" for persistence.
+# Storage backend.
+# Leave CATALOG_DB_PATH unset (or empty) to use the in-memory store.
+# Set CATALOG_DB_PATH to a file path to enable SQLite persistence, e.g.:
+#   CATALOG_DB_PATH=/mnt/user/appdata/catalog-api/catalog.db
 storage:
-  backend: memory
+  backend: sqlite
+  db_path: /mnt/user/appdata/catalog-api/catalog.db
