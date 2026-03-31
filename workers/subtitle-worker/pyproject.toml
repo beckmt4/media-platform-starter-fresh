@@ -8,6 +8,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Runtime deps that require a GPU/ML environment — not installed in CI.
+runtime = [
+    "faster-whisper>=1.0",
+]
 dev = [
     "pytest>=8.2",
     "httpx>=0.27",
