@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>subtitle-intel</Name>
+  <Repository>media-platform/subtitle-intel:latest</Repository>
+  <Registry></Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support></Support>
+  <Project></Project>
+  <Overview>Subtitle inspection and language detection service. Scans media files for existing subtitle tracks, parses metadata, and reports track quality. Called by the n8n intake workflow before policy evaluation.</Overview>
+  <Category>Tools: MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:8002]/docs</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon></Icon>
+  <ExtraParams></ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires></Requires>
+
+  <!-- Ports -->
+  <Config Name="WebUI Port" Target="8002" Default="8002" Mode="tcp"
+          Description="subtitle-intel HTTP port."
+          Type="Port" Display="always" Required="true" Mask="false">8002</Config>
+
+  <!-- Volumes — media shares are read-only; subtitle-intel never mutates files -->
+  <Config Name="Domestic TV" Target="/mnt/dtv" Default="/mnt/user/Domestic_TV"
+          Mode="ro"
+          Description="Domestic TV share (read-only). Maps to /mnt/dtv inside container."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/Domestic_TV</Config>
+  <Config Name="International TV" Target="/mnt/itv" Default="/mnt/user/International_TV"
+          Mode="ro"
+          Description="International/Anime/JAV share (read-only). Maps to /mnt/itv inside container."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/International_TV</Config>
+  <Config Name="Work Directory" Target="/mnt/container/media-work" Default="/mnt/user/appdata/media-platform/media-work"
+          Mode="ro"
+          Description="Intake/inbox/review scratch area (read-only for intel service)."
+          Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/media-platform/media-work</Config>
+</Container>

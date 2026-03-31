@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>jav-normalizer</Name>
+  <Repository>media-platform/jav-normalizer:latest</Repository>
+  <Registry></Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support></Support>
+  <Project></Project>
+  <Overview>JAV title normalization and enrichment helper. Parses JAV ID formats, normalizes studio/title metadata, and prepares structured records for catalog ingestion.</Overview>
+  <Category>Tools: MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:8003]/docs</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon></Icon>
+  <ExtraParams></ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires></Requires>
+
+  <!-- Ports -->
+  <Config Name="WebUI Port" Target="8003" Default="8003" Mode="tcp"
+          Description="jav-normalizer HTTP port."
+          Type="Port" Display="always" Required="true" Mask="false">8003</Config>
+
+  <!-- Volumes -->
+  <Config Name="Adult Media" Target="/mnt/itv/adult" Default="/mnt/user/adult"
+          Mode="ro"
+          Description="Adult media share (read-only)."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/adult</Config>
+</Container>
