@@ -13,7 +13,7 @@ from .models import (
     ReviewQueueEntry,
     ReviewQueueResolve,
 )
-from .store import store
+from .store import SQLiteCatalogStore, store
 
 # --- Structured logging ---
 logging.basicConfig(
@@ -24,6 +24,11 @@ logging.basicConfig(
 log = logging.getLogger("catalog_api")
 
 app = FastAPI(title="catalog-api", version="0.1.0")
+
+_backend = (
+    f"sqlite:{store._db_path}" if isinstance(store, SQLiteCatalogStore) else "memory"
+)
+log.info("catalog-api store backend=%s", _backend)
 
 
 # ---------------------------------------------------------------------------

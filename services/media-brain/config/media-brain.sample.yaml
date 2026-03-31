@@ -1,0 +1,16 @@
+# media-brain sample configuration
+# Override via environment variables at runtime.
+
+# Path to the SQLite database.
+# Default: /data/media_brain.db
+MEDIA_BRAIN_DB_PATH: /data/media_brain.db
+
+# Default file extensions to scan when no extensions list is supplied.
+# Passed as a JSON array in POST /scan/directory.
+default_extensions:
+  - .mkv
+  - .mp4
+  - .avi
+
+# mediainfo subprocess timeout in seconds.
+mediainfo_timeout_seconds: 120

@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>media-policy-engine</Name>
+  <Repository>media-platform/media-policy-engine:latest</Repository>
+  <Registry></Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support></Support>
+  <Project></Project>
+  <Overview>Policy evaluator for the media platform. Reads YAML policy files from config/policies/ and returns ordered action lists for each media item. Called by the n8n intake workflow before worker dispatch.</Overview>
+  <Category>Tools: MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:8001]/docs</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon></Icon>
+  <ExtraParams></ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires></Requires>
+
+  <!-- Ports -->
+  <Config Name="WebUI Port" Target="8001" Default="8001" Mode="tcp"
+          Description="media-policy-engine HTTP port."
+          Type="Port" Display="always" Required="true" Mask="false">8001</Config>
+
+  <!-- Volumes -->
+  <Config Name="Policy Config" Target="/config/policies" Default="/mnt/user/appdata/media-platform/config/policies"
+          Mode="ro"
+          Description="Read-only mount of config/policies/ from the repo. Policy files are the contract — do not auto-modify."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-platform/config/policies</Config>
+  <Config Name="Media Domains Config" Target="/config/media-domains.yaml" Default="/mnt/user/appdata/media-platform/config/media-domains.yaml"
+          Mode="ro"
+          Description="Read-only mount of config/media-domains.yaml."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-platform/config/media-domains.yaml</Config>
+</Container>

@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>subtitle-worker</Name>
+  <Repository>media-platform/subtitle-worker:latest</Repository>
+  <Registry></Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support></Support>
+  <Project></Project>
+  <Overview>Subtitle generation worker. Uses faster-whisper to transcribe audio tracks and write .srt files alongside source media. Calls catalog-api to tag items subtitle-complete on success. Requires ffmpeg on the container PATH (included in image).</Overview>
+  <Category>Tools: MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:8004]/docs</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon></Icon>
+  <!-- Pass --gpus all here to enable NVIDIA CUDA acceleration -->
+  <ExtraParams></ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires></Requires>
+
+  <!-- Ports -->
+  <Config Name="WebUI Port" Target="8004" Default="8004" Mode="tcp"
+          Description="subtitle-worker HTTP port. POST /jobs to submit a transcription job."
+          Type="Port" Display="always" Required="true" Mask="false">8004</Config>
+
+  <!-- Volumes -->
+  <Config Name="Whisper Model Cache" Target="/models" Default="/mnt/user/appdata/media-platform/whisper-models"
+          Mode="rw"
+          Description="Persistent cache for downloaded Whisper models. Prevents re-downloading on container restart."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-platform/whisper-models</Config>
+  <Config Name="Work Directory" Target="/mnt/container/media-work" Default="/mnt/user/appdata/media-platform/media-work"
+          Mode="rw"
+          Description="Subtitle scratch, inbox, and output staging area."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-platform/media-work</Config>
+  <Config Name="Domestic TV" Target="/mnt/dtv" Default="/mnt/user/Domestic_TV"
+          Mode="rw"
+          Description="Domestic TV share. Worker writes .srt files alongside source media."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/Domestic_TV</Config>
+  <Config Name="International TV" Target="/mnt/itv" Default="/mnt/user/International_TV"
+          Mode="rw"
+          Description="International/Anime/JAV share. Worker writes .srt files alongside source media."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/International_TV</Config>
+
+  <!-- Environment -->
+  <Config Name="CATALOG_API_URL" Target="CATALOG_API_URL" Default="http://catalog-api:8000"
+          Description="Base URL of catalog-api. Worker PATCHes subtitle-complete tag on job completion. Leave blank to disable."
+          Type="Variable" Display="always" Required="false" Mask="false">http://catalog-api:8000</Config>
+  <Config Name="HF_HOME" Target="HF_HOME" Default="/models"
+          Description="Hugging Face / faster-whisper model cache directory inside container."
+          Type="Variable" Display="advanced" Required="false" Mask="false">/models</Config>
+</Container>

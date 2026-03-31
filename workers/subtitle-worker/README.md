@@ -3,17 +3,11 @@
 Stateless subtitle job executor. Generates, repairs, or translates subtitle
 tracks for a single media file. Never mutates the source file.
 
-## Status
-
-Stub — job interface and validation are complete. Actual faster-whisper
-execution is not implemented. The worker returns `complete` with a placeholder
-output path when all tools are available.
-
 ## Job types
 
 | Type | Description | Required tools |
 |------|-------------|----------------|
-| `generate` | Run faster-whisper on the audio track | `whisper` (faster-whisper CLI) |
+| `generate` | Transcribe audio with faster-whisper, write `.srt` | `ffmpeg`, `ffprobe`, `faster-whisper` (Python package) |
 | `repair` | Fix malformed or mis-timed existing subtitle | None (pure Python) |
 | `translate` | Translate subtitle lines to target language | None (stub) |
 
@@ -50,16 +44,37 @@ output path when all tools are available.
 
 | Status | Meaning |
 |--------|---------|
-| `complete` | Job finished successfully |
+| `complete` | Job finished, `.srt` file written |
 | `skipped` | `dry_run=True` or policy skip |
-| `failed` | Source file missing or runtime error |
-| `tool_unavailable` | `whisper` not on PATH |
+| `failed` | Source file missing, ffmpeg error, or transcription error |
+| `tool_unavailable` | `ffmpeg`, `ffprobe`, or `faster-whisper` not available |
+
+## Audio track selection
+
+For `generate` jobs, ffprobe inspects the source file and selects the English
+audio stream (`language=eng/en`) when present, falling back to the first audio
+stream. Audio is extracted to a temporary 16 kHz mono WAV before being fed to
+faster-whisper.
+
+## Catalog notification
+
+On `complete`, the worker PATCHes the catalog item to append the
+`subtitle-complete` tag. Requires `CATALOG_API_URL` to be set. The job result
+is returned regardless of catalog reachability.
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `CATALOG_API_URL` | _(unset)_ | Base URL of catalog-api. When unset, no catalog notification is sent. |
+| `HF_HOME` | `/models` | Hugging Face / faster-whisper model cache directory. |
 
 ## Running
 
 ```bash
 cd workers/subtitle-worker
 pip install -e ".[dev]"
+pip install faster-whisper  # runtime dep, not included in dev extras
 
 # Check tool availability
 python -m subtitle_worker status
@@ -74,10 +89,11 @@ python -m subtitle_worker run '{"item_id":"x","file_path":"/path/to/file.mkv","j
 pytest
 ```
 
-No faster-whisper installation required — tests use monkeypatching and temp files.
+No faster-whisper or ffmpeg installation required — tests use monkeypatching
+and temporary files.
 
 ## Non-negotiables
 
 - Source media files are never modified.
 - Original and English audio tracks are always preserved.
-- Output is always a new file alongside (or in `output_dir`).
+- Output is always a new `.srt` file alongside the source (or in `output_dir`).

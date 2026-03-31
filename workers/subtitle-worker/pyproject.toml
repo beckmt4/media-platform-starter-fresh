@@ -4,11 +4,17 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
+    "fastapi>=0.111",
 ]
 
 [project.optional-dependencies]
+# Runtime deps that require a GPU/ML environment — not installed in CI.
+runtime = [
+    "faster-whisper>=1.0",
+]
 dev = [
     "pytest>=8.2",
+    "httpx>=0.27",
 ]
 
 [tool.pytest.ini_options]

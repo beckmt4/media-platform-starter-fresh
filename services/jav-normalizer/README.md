@@ -1,12 +1,8 @@
 # jav-normalizer
 
-JAV title ID parser and normalizer. Extracts structured title metadata from
-raw filenames or title strings. No file system access, no network calls.
-
-## Status
-
-Stub — regex-based ID parsing only. Enrichment (metadata lookup from external
-databases) is out of scope for this stub.
+JAV title ID parser, normalizer, and metadata enricher. Extracts structured
+title metadata from raw filenames or title strings, then optionally fetches
+full metadata from a self-hosted local metadata service.
 
 ## What it does
 
@@ -17,6 +13,8 @@ databases) is out of scope for this stub.
 5. Strips known suffix flags (`C`, `UC`, `R`) and reports them separately.
 6. Returns `no_id_found` when no recognisable pattern is present.
 7. Returns `ambiguous` when multiple candidate IDs are found in one string.
+8. Optionally enriches the canonical ID by calling a local metadata service
+   (`JAV_METADATA_URL`) for title, studio, cast, genres, and cover art.
 
 ## ID format
 
@@ -42,6 +40,34 @@ databases) is out of scope for this stub.
 | `FC2-PPV-12345.mkv` | `FC2-12345` or `PPV-12345` | May be ambiguous |
 | `Some Movie.mkv` | — | `no_id_found` |
 
+## Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /health | Health check |
+| POST | /normalize | Parse and normalize a raw title string |
+| POST | /enrich | Fetch metadata for a canonical ID from the local metadata service |
+| POST | /normalize-and-enrich | Parse then enrich in one call; enrich is skipped if no ID found |
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `JAV_METADATA_URL` | _(unset)_ | Base URL of a self-hosted metadata service (e.g. `http://javinfo-api:8800`). When unset, `/enrich` returns `unavailable`. |
+
+The enricher calls `GET {JAV_METADATA_URL}/movie/{canonical_id}` and maps the
+JSON response to `JavMetadata`. All fields are optional — the enricher never
+raises on partial or empty responses.
+
+### Enrich status values
+
+| Status | Meaning |
+|--------|---------|
+| `ok` | Metadata returned successfully |
+| `not_found` | Service responded with 404 — ID not in its database |
+| `unavailable` | `JAV_METADATA_URL` not configured |
+| `error` | Network failure, timeout, or invalid JSON response |
+
 ## Running locally
 
 ```bash
@@ -57,16 +83,4 @@ cd services/jav-normalizer
 pytest
 ```
 
-## Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /health | Health check |
-| POST | /normalize | Parse and normalize a raw title string |
-
-## Next steps
-
-- Add enrichment: submit canonical ID to a local metadata cache or scraper.
-- Handle hyphenated studio codes (e.g. `E-BODY`, `S-CUTE`).
-- Add a `/normalize/batch` endpoint for manifest-level processing.
-- Wire into the catalog-api ingestion workflow.
+No metadata service required — enricher calls are monkeypatched in tests.

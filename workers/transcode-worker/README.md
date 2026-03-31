@@ -4,12 +4,6 @@ Stateless video transcode job executor. Re-encodes the video stream of a
 single media file using ffmpeg. Audio and subtitle streams are always copied
 unchanged. Never overwrites the source file.
 
-## Status
-
-Stub — job interface, encoder selection, and all safety guards are complete.
-Actual ffmpeg execution is not implemented. The worker returns `complete` with
-source file size when all tools are available.
-
 ## Interface
 
 **Input: `TranscodeJob`**
@@ -47,7 +41,7 @@ source file size when all tools are available.
 |--------|---------|
 | `complete` | Job finished, output file written |
 | `skipped` | `dry_run=True` |
-| `failed` | Source missing, in-place attempt, or runtime error |
+| `failed` | Source missing, in-place attempt, ffmpeg error, or timeout |
 | `tool_unavailable` | `ffmpeg` or `ffprobe` not on PATH |
 
 ## Encoder selection
@@ -56,6 +50,19 @@ source file size when all tools are available.
 |-----------|---------|
 | `allow_nvenc=True` and `nvidia-smi` on PATH | `hevc_nvenc` |
 | Otherwise | `libx265` |
+
+## Catalog notification
+
+On `complete`, the worker PATCHes the catalog item to append the
+`transcode-complete` tag. Requires `CATALOG_API_URL` to be set. The job
+result is returned regardless of catalog reachability.
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `CATALOG_API_URL` | _(unset)_ | Base URL of catalog-api. When unset, no catalog notification is sent. |
+| `PREFER_NVENC` | `false` | Set to `true` to prefer NVIDIA NVENC (CA Apps UI toggle). |
 
 ## Running
 
@@ -76,10 +83,11 @@ python -m transcode_worker run '{"item_id":"x","file_path":"/src.mkv","output_pa
 pytest
 ```
 
-No ffmpeg installation required — all tool calls are monkeypatched.
+No ffmpeg installation required — all subprocess calls are monkeypatched.
 
 ## Non-negotiables
 
 - Source file is never deleted or overwritten (`output_path` must differ from `file_path`).
 - Audio and subtitle streams are always copied (`-c:a copy -c:s copy`).
-- Caller updates catalog state after verifying the output — the worker does not touch catalog-api.
+- Partial output files are deleted on ffmpeg error or timeout.
+- Hard timeout: 2 hours per job (`subprocess.TimeoutExpired` → `failed`).

@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>catalog-api</Name>
+  <Repository>media-platform/catalog-api:latest</Repository>
+  <Registry></Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support></Support>
+  <Project></Project>
+  <Overview>Source-of-truth catalog and state API. Tracks all media items, arr lock state, and review queue entries. All other services report back to this API.</Overview>
+  <Category>Tools: MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:8000]/docs</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon></Icon>
+  <ExtraParams></ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires></Requires>
+
+  <!-- Ports -->
+  <Config Name="WebUI Port" Target="8000" Default="8000" Mode="tcp"
+          Description="catalog-api HTTP port. Access Swagger docs at /docs."
+          Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+
+  <!-- Volumes -->
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/catalog-api"
+          Mode="rw"
+          Description="Persistent data directory. SQLite database is stored here."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/catalog-api</Config>
+
+  <!-- Environment -->
+  <Config Name="CATALOG_DB_PATH" Target="CATALOG_DB_PATH" Default="/data/catalog.db"
+          Description="Path inside container to the SQLite database file."
+          Type="Variable" Display="always" Required="true" Mask="false">/data/catalog.db</Config>
+</Container>

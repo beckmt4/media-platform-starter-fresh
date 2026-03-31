@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>transcode-worker</Name>
+  <Repository>media-platform/transcode-worker:latest</Repository>
+  <Registry></Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support></Support>
+  <Project></Project>
+  <Overview>Video and audio mutation worker. Wraps ffmpeg and mkvtoolnix to perform policy-driven remux, re-encode, and track operations. Never deletes original audio. Requires review gate confirmation before destructive operations.</Overview>
+  <Category>Tools: MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:8005]/docs</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon></Icon>
+  <!-- For NVIDIA NVENC hardware encoding add: --gpus all -->
+  <!-- For Intel QuickSync add: --device /dev/dri -->
+  <ExtraParams></ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires></Requires>
+
+  <!-- Ports -->
+  <Config Name="WebUI Port" Target="8005" Default="8005" Mode="tcp"
+          Description="transcode-worker HTTP port. POST /jobs to submit a transcode job."
+          Type="Port" Display="always" Required="true" Mask="false">8005</Config>
+
+  <!-- Volumes -->
+  <Config Name="Work Directory" Target="/mnt/container/media-work" Default="/mnt/user/appdata/media-platform/media-work"
+          Mode="rw"
+          Description="Intake, review, and scratch staging area."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-platform/media-work</Config>
+  <Config Name="Scratch / Tdarr" Target="/mnt/torrent/tdarr" Default="/mnt/user/tdarr"
+          Mode="rw"
+          Description="Tdarr/transcode scratch space."
+          Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/tdarr</Config>
+  <Config Name="Domestic TV" Target="/mnt/dtv" Default="/mnt/user/Domestic_TV"
+          Mode="rw"
+          Description="Domestic TV share. Worker may write remuxed output here."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/Domestic_TV</Config>
+  <Config Name="International TV" Target="/mnt/itv" Default="/mnt/user/International_TV"
+          Mode="rw"
+          Description="International/Anime/JAV share. Worker may write remuxed output here."
+          Type="Path" Display="always" Required="false" Mask="false">/mnt/user/International_TV</Config>
+
+  <!-- Environment -->
+  <Config Name="CATALOG_API_URL" Target="CATALOG_API_URL" Default="http://catalog-api:8000"
+          Description="Base URL of catalog-api for state updates."
+          Type="Variable" Display="always" Required="false" Mask="false">http://catalog-api:8000</Config>
+  <Config Name="PREFER_NVENC" Target="PREFER_NVENC" Default="false"
+          Description="Set to true to prefer NVIDIA NVENC hardware encoding. Requires --gpus all in ExtraParams."
+          Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+</Container>
