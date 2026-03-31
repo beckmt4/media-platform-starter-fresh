@@ -113,16 +113,25 @@ def probe_media_file(media_path: Path) -> dict[str, Any]:
             command,
             check=True,
             capture_output=True,
-            text=True,
+            text=False,
         )
     except FileNotFoundError as exc:
         raise FFProbeError("ffprobe is not installed or is not on PATH.") from exc
     except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.strip() or "ffprobe failed without stderr output"
+        stderr_bytes = exc.stderr or b""
+        stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+        if not stderr:
+            stderr = "ffprobe failed without stderr output"
         raise FFProbeError(f"ffprobe failed for {media_path}: {stderr}") from exc
 
+    stdout_bytes = result.stdout or b""
+    stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+
+    if not stdout_text:
+        raise FFProbeError(f"ffprobe returned empty output for {media_path}")
+
     try:
-        return json.loads(result.stdout)
+        return json.loads(stdout_text)
     except json.JSONDecodeError as exc:
         raise FFProbeError(f"ffprobe returned invalid JSON for {media_path}") from exc
 
