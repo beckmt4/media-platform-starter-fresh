@@ -151,6 +151,8 @@ def enumerate_tracks(ffprobe_data: dict[str, Any]) -> dict[str, list[dict[str, A
 
         tags = stream.get("tags", {})
         disposition = stream.get("disposition", {})
+        color_primaries = stream.get("color_primaries", "")
+        color_transfer = stream.get("color_transfer", "")
         tracks[codec_type].append(
             {
                 "index": stream.get("index"),
@@ -163,6 +165,11 @@ def enumerate_tracks(ffprobe_data: dict[str, Any]) -> dict[str, list[dict[str, A
                 "height": stream.get("height"),
                 "default": bool(disposition.get("default", 0)),
                 "forced": bool(disposition.get("forced", 0)),
+                # HDR: bt2020 primaries with PQ (smpte2084) or HLG (arib-std-b67) transfer.
+                "is_hdr": (
+                    color_primaries == "bt2020"
+                    or color_transfer in {"smpte2084", "arib-std-b67"}
+                ),
             }
         )
 

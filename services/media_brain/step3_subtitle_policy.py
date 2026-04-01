@@ -27,9 +27,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from services.media_brain.job_store import init_job_tables, record_state_transition
+
 DEFAULT_DB_PATH = Path("media_brain.db")
 SOURCE_STATE = "needs_subtitle_review"
 ENGLISH_REVIEW_STATUSES = {"trusted_existing", "detected"}
+# Tracks with these statuses have ambiguous subtitle content and require human review.
+MANUAL_REVIEW_STATUSES = {"uncertain", "needs_ocr"}
 
 
 class Step3PolicyError(RuntimeError):
@@ -43,6 +47,7 @@ class Step3Summary:
     processed_files: int
     has_english_subtitle: int
     needs_subtitle_generation: int
+    needs_manual_subtitle_review: int
     failed_files: int
     db_path: Path
 
@@ -155,6 +160,7 @@ def evaluate_subtitle_policy(
     sidecar_count = len(sidecar_subtitles)
     has_any_subtitle = subtitle_track_count > 0 or sidecar_count > 0
 
+    # 1. Confirmed English subtitle — proceed to audio review.
     for label in track_labels:
         lang = label["detected_language"]
         status = label["review_status"]
@@ -170,7 +176,24 @@ def evaluate_subtitle_policy(
                 notes=f"English subtitle found via {label['track_key']} (status={status})",
             )
 
-    # No English subtitle found — build context note for downstream use.
+    # 2. Uncertain or OCR-only evidence — human review required before automation.
+    for label in track_labels:
+        if label["review_status"] in MANUAL_REVIEW_STATUSES:
+            return PolicyDecision(
+                media_id=media_id,
+                policy_decision="needs_manual_subtitle_review",
+                next_state="needs_manual_subtitle_review",
+                english_track_key=None,
+                has_any_subtitle=has_any_subtitle,
+                subtitle_track_count=subtitle_track_count,
+                sidecar_count=sidecar_count,
+                notes=(
+                    f"Ambiguous subtitle evidence (status={label['review_status']} on "
+                    f"{label['track_key']}); queued for manual review."
+                ),
+            )
+
+    # 3. No English and no ambiguous tracks — queue Whisper generation.
     if has_any_subtitle:
         notes = (
             f"No English subtitle; {subtitle_track_count} embedded track(s), "
@@ -269,11 +292,13 @@ def run_step3_subtitle_policy(
         "processed_files": 0,
         "has_english_subtitle": 0,
         "needs_subtitle_generation": 0,
+        "needs_manual_subtitle_review": 0,
         "failed_files": 0,
     }
 
     with sqlite3.connect(db_path) as connection:
         init_step3_db(connection)
+        init_job_tables(connection)
         media_rows = fetch_media_for_policy(connection)
 
         for row in media_rows:
@@ -291,6 +316,13 @@ def run_step3_subtitle_policy(
                     sidecar_subtitles=sidecar_subtitles,
                 )
                 upsert_policy_decision(connection, decision, decided_at)
+                record_state_transition(
+                    connection,
+                    media_id,
+                    from_state=SOURCE_STATE,
+                    to_state=decision.next_state,
+                    reason=decision.policy_decision,
+                )
                 counts[decision.policy_decision] += 1
             except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error) as exc:
                 counts["failed_files"] += 1
@@ -298,20 +330,20 @@ def run_step3_subtitle_policy(
         connection.commit()
 
     if dispatch_after:
-        # Local import: step4_dispatch is an optional next step.  Importing at
+        # Local import: step4_audio_extraction is an optional next step.  Importing at
         # call time keeps step3 usable in environments where step4 is not yet
         # deployed, and avoids a circular import at module load.
         try:
-            from services.media_brain import step4_dispatch as _step4
+            from services.media_brain import step4_audio_extraction as _step4
         except ImportError as exc:
             raise Step3PolicyError(
-                "dispatch_after=True requires step4_dispatch.py in "
+                "dispatch_after=True requires step4_audio_extraction.py in "
                 "services/media_brain/ but import failed: %s" % exc
             ) from exc
         _effective_url = worker_url or os.environ.get(
             "SUBTITLE_WORKER_URL", "http://localhost:8100"
         )
-        _step4.dispatch_pending_jobs(db_path=db_path, worker_url=_effective_url)
+        _step4.run_step4_audio_extraction(db_path=db_path, worker_url=_effective_url)
 
     return Step3Summary(db_path=db_path, **counts)
 
@@ -363,6 +395,7 @@ def main() -> int:
                 "processed_files": summary.processed_files,
                 "has_english_subtitle": summary.has_english_subtitle,
                 "needs_subtitle_generation": summary.needs_subtitle_generation,
+                "needs_manual_subtitle_review": summary.needs_manual_subtitle_review,
                 "failed_files": summary.failed_files,
                 "db_path": str(summary.db_path),
             },

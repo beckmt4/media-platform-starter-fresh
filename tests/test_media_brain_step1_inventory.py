@@ -5,6 +5,7 @@ from pathlib import Path
 from services.media_brain.step1_inventory import (
     compute_media_id,
     detect_sidecar_subtitles,
+    enumerate_tracks,
     run_step1_inventory,
 )
 
@@ -103,6 +104,52 @@ def test_run_step1_inventory_writes_media_records(tmp_path: Path, monkeypatch) -
     assert audio_tracks[0]["language"] == "jpn"
     assert subtitle_tracks[0]["language"] == "eng"
     assert sidecars[0]["filename"] == "sample.en.srt"
+
+
+# ---------------------------------------------------------------------------
+# enumerate_tracks / is_hdr tests
+# ---------------------------------------------------------------------------
+
+def test_enumerate_tracks_sdr_video_is_hdr_false() -> None:
+    ffprobe = {"streams": [{"index": 0, "codec_type": "video", "codec_name": "h264",
+                            "tags": {}, "disposition": {"default": 1, "forced": 0}}]}
+    tracks = enumerate_tracks(ffprobe)
+    assert tracks["video"][0]["is_hdr"] is False
+
+
+def test_enumerate_tracks_hdr10_is_hdr_true() -> None:
+    """bt2020 primaries + smpte2084 transfer = HDR10."""
+    ffprobe = {"streams": [{"index": 0, "codec_type": "video", "codec_name": "hevc",
+                            "color_primaries": "bt2020", "color_transfer": "smpte2084",
+                            "tags": {}, "disposition": {"default": 1, "forced": 0}}]}
+    tracks = enumerate_tracks(ffprobe)
+    assert tracks["video"][0]["is_hdr"] is True
+
+
+def test_enumerate_tracks_hlg_is_hdr_true() -> None:
+    """bt2020 primaries + arib-std-b67 transfer = HLG."""
+    ffprobe = {"streams": [{"index": 0, "codec_type": "video", "codec_name": "hevc",
+                            "color_primaries": "bt2020", "color_transfer": "arib-std-b67",
+                            "tags": {}, "disposition": {"default": 1, "forced": 0}}]}
+    tracks = enumerate_tracks(ffprobe)
+    assert tracks["video"][0]["is_hdr"] is True
+
+
+def test_enumerate_tracks_pq_transfer_alone_is_hdr_true() -> None:
+    """PQ transfer without bt2020 primaries still flags HDR (e.g. poorly tagged files)."""
+    ffprobe = {"streams": [{"index": 0, "codec_type": "video", "codec_name": "hevc",
+                            "color_primaries": "bt709", "color_transfer": "smpte2084",
+                            "tags": {}, "disposition": {"default": 1, "forced": 0}}]}
+    tracks = enumerate_tracks(ffprobe)
+    assert tracks["video"][0]["is_hdr"] is True
+
+
+def test_enumerate_tracks_audio_has_no_is_hdr() -> None:
+    """Audio tracks should still have is_hdr=False (bt2020 fields absent)."""
+    ffprobe = {"streams": [{"index": 0, "codec_type": "audio", "codec_name": "aac",
+                            "channels": 2, "tags": {}, "disposition": {"default": 1, "forced": 0}}]}
+    tracks = enumerate_tracks(ffprobe)
+    assert tracks["audio"][0]["is_hdr"] is False
 
 
 # ---------------------------------------------------------------------------

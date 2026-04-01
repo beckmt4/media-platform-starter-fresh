@@ -146,18 +146,27 @@ def test_evaluate_policy_english_detected() -> None:
     assert decision.next_state == "needs_audio_review"
 
 
-def test_evaluate_policy_uncertain_english_does_not_qualify() -> None:
-    """A track with review_status=uncertain must NOT be accepted as English."""
+def test_evaluate_policy_uncertain_english_routes_to_manual_review() -> None:
+    """A track with review_status=uncertain must route to manual review, not generation."""
     labels = [_make_label("mid:embedded:2", "en", "uncertain")]
     decision = evaluate_subtitle_policy("mid", labels, [{"index": 2}], [])
-    assert decision.policy_decision == "needs_subtitle_generation"
-    assert decision.next_state == "needs_subtitle_generation"
+    assert decision.policy_decision == "needs_manual_subtitle_review"
+    assert decision.next_state == "needs_manual_subtitle_review"
+    assert decision.english_track_key is None
 
 
-def test_evaluate_policy_ocr_does_not_qualify() -> None:
+def test_evaluate_policy_ocr_routes_to_manual_review() -> None:
     labels = [_make_label("mid:embedded:2", "en", "needs_ocr")]
     decision = evaluate_subtitle_policy("mid", labels, [{"index": 2}], [])
-    assert decision.policy_decision == "needs_subtitle_generation"
+    assert decision.policy_decision == "needs_manual_subtitle_review"
+    assert decision.next_state == "needs_manual_subtitle_review"
+
+
+def test_evaluate_policy_uncertain_non_english_routes_to_manual_review() -> None:
+    """Uncertain label for any language (not just English) routes to manual review."""
+    labels = [_make_label("mid:embedded:1", "ja", "uncertain")]
+    decision = evaluate_subtitle_policy("mid", labels, [{"index": 1}], [])
+    assert decision.policy_decision == "needs_manual_subtitle_review"
 
 
 def test_evaluate_policy_non_english_subtitle_queues_generation() -> None:
@@ -316,8 +325,8 @@ def test_run_step3_non_english_subtitle_queues_generation(tmp_path: Path) -> Non
     assert row[2] == 1
 
 
-def test_run_step3_uncertain_english_queues_generation(tmp_path: Path) -> None:
-    """Uncertain English must NOT advance to needs_audio_review."""
+def test_run_step3_uncertain_english_routes_to_manual_review(tmp_path: Path) -> None:
+    """Uncertain English must route to needs_manual_subtitle_review, not generation."""
     db_path = tmp_path / "media_brain.db"
 
     with sqlite3.connect(db_path) as conn:
@@ -341,8 +350,15 @@ def test_run_step3_uncertain_english_queues_generation(tmp_path: Path) -> None:
 
     summary = run_step3_subtitle_policy(db_path=db_path)
 
-    assert summary.needs_subtitle_generation == 1
+    assert summary.needs_manual_subtitle_review == 1
+    assert summary.needs_subtitle_generation == 0
     assert summary.has_english_subtitle == 0
+
+    with sqlite3.connect(db_path) as conn:
+        state = conn.execute(
+            "SELECT state FROM media_records WHERE media_id = ?", ("media-4",)
+        ).fetchone()[0]
+    assert state == "needs_manual_subtitle_review"
 
 
 def test_run_step3_only_processes_needs_subtitle_review_state(tmp_path: Path) -> None:
@@ -411,11 +427,70 @@ def test_run_step3_multiple_files_mixed_decisions(tmp_path: Path) -> None:
         # File C — no subtitles
         insert_media_record(conn, media_id="C", subtitle_tracks=[])
 
+        # File D — uncertain English
+        insert_media_record(conn, media_id="D", subtitle_tracks=[{"index": 1}])
+        insert_track_label(conn, track_key="D:embedded:1", media_id="D", detected_language="en", review_status="uncertain", detected_confidence=0.5)
+
         conn.commit()
 
     summary = run_step3_subtitle_policy(db_path=db_path)
 
-    assert summary.processed_files == 3
+    assert summary.processed_files == 4
     assert summary.has_english_subtitle == 1
     assert summary.needs_subtitle_generation == 2
+    assert summary.needs_manual_subtitle_review == 1
     assert summary.failed_files == 0
+
+
+def test_run_step3_writes_state_transitions(tmp_path: Path) -> None:
+    """Every state change must be recorded in state_transitions."""
+    db_path = tmp_path / "media_brain.db"
+
+    with sqlite3.connect(db_path) as conn:
+        create_step1_table(conn)
+        create_step2_table(conn)
+        init_step3_db(conn)
+        insert_media_record(conn, media_id="tr-1", subtitle_tracks=[])
+        insert_media_record(conn, media_id="tr-2", subtitle_tracks=[{"index": 1}])
+        insert_track_label(conn, track_key="tr-2:embedded:1", media_id="tr-2", detected_language="en", review_status="detected")
+        conn.commit()
+
+    run_step3_subtitle_policy(db_path=db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT media_id, from_state, to_state, reason FROM state_transitions ORDER BY media_id"
+        ).fetchall()
+
+    assert len(rows) == 2
+    tr1 = next(r for r in rows if r["media_id"] == "tr-1")
+    assert tr1["from_state"] == "needs_subtitle_review"
+    assert tr1["to_state"] == "needs_subtitle_generation"
+    tr2 = next(r for r in rows if r["media_id"] == "tr-2")
+    assert tr2["from_state"] == "needs_subtitle_review"
+    assert tr2["to_state"] == "needs_audio_review"
+
+
+def test_run_step3_manual_review_state_in_db(tmp_path: Path) -> None:
+    """needs_ocr label must leave media_records.state = needs_manual_subtitle_review."""
+    db_path = tmp_path / "media_brain.db"
+
+    with sqlite3.connect(db_path) as conn:
+        create_step1_table(conn)
+        create_step2_table(conn)
+        init_step3_db(conn)
+        insert_media_record(conn, media_id="ocr-1", subtitle_tracks=[{"index": 0}])
+        insert_track_label(conn, track_key="ocr-1:embedded:0", media_id="ocr-1", detected_language="ja", review_status="needs_ocr")
+        conn.commit()
+
+    summary = run_step3_subtitle_policy(db_path=db_path)
+
+    assert summary.needs_manual_subtitle_review == 1
+    assert summary.needs_subtitle_generation == 0
+
+    with sqlite3.connect(db_path) as conn:
+        state = conn.execute(
+            "SELECT state FROM media_records WHERE media_id = ?", ("ocr-1",)
+        ).fetchone()[0]
+    assert state == "needs_manual_subtitle_review"

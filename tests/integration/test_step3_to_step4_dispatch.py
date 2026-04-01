@@ -1,4 +1,4 @@
-"""Integration tests: Step 3 policy decision → Step 4 dispatch.
+"""Integration tests: Step 3 policy decision → Step 4 audio extraction.
 
 Exercises the full state transition chain using an in-process SQLite DB and a
 mocked HTTP endpoint.  No subtitle worker process is required.
@@ -6,7 +6,7 @@ mocked HTTP endpoint.  No subtitle worker process is required.
 State chain under test:
   needs_subtitle_review
     → (Step 3: no English subtitle)  → needs_subtitle_generation
-    → (Step 4 dispatch)              → subtitle_generation_queued
+    → (Step 4 audio extraction)      → audio_extracted
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from services.media_brain.step3_subtitle_policy import run_step3_subtitle_policy
-from services.media_brain.step4_dispatch import QUEUED_STATE, SOURCE_STATE
+from services.media_brain.step4_audio_extraction import SOURCE_STATE, SUCCESS_STATE as EXTRACTED_STATE
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ def _get_state(conn: sqlite3.Connection, media_id: str) -> str:
 
 
 def _fake_http_success(url: str, payload: dict) -> dict:
-    return {"job_id": payload["job_id"], "item_id": None, "status": "pending", "job_type": "generate"}
+    return {"job_id": payload["job_id"], "item_id": None, "status": "complete", "job_type": "extract_audio"}
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ def _fake_http_success(url: str, payload: dict) -> dict:
 
 def test_no_english_subtitle_dispatches_job(tmp_path: Path) -> None:
     """Full chain: no English subtitle → Step 3 writes needs_subtitle_generation
-    → dispatch_after=True → state = subtitle_generation_queued."""
+    → dispatch_after=True → state = audio_extracted."""
     db_path = tmp_path / "brain.db"
     media_id = "chain_test_001"
 
@@ -139,7 +139,7 @@ def test_no_english_subtitle_dispatches_job(tmp_path: Path) -> None:
         posted.append(payload)
         return _fake_http_success(url, payload)
 
-    with patch("services.media_brain.step4_dispatch._http_post", side_effect=capture):
+    with patch("services.media_brain.step4_audio_extraction._http_post", side_effect=capture):
         summary = run_step3_subtitle_policy(
             db_path=db_path,
             dispatch_after=True,
@@ -150,9 +150,10 @@ def test_no_english_subtitle_dispatches_job(tmp_path: Path) -> None:
     assert summary.has_english_subtitle == 0
     assert len(posted) == 1, "exactly one job must be POSTed"
     assert posted[0]["media_id"] == media_id
+    assert posted[0]["job_type"] == "extract_audio"
 
     with sqlite3.connect(db_path) as conn:
-        assert _get_state(conn, media_id) == QUEUED_STATE
+        assert _get_state(conn, media_id) == EXTRACTED_STATE
 
 
 def test_english_subtitle_no_dispatch(tmp_path: Path) -> None:
@@ -172,7 +173,7 @@ def test_english_subtitle_no_dispatch(tmp_path: Path) -> None:
         posted.append(payload)
         return _fake_http_success(url, payload)
 
-    with patch("services.media_brain.step4_dispatch._http_post", side_effect=capture):
+    with patch("services.media_brain.step4_audio_extraction._http_post", side_effect=capture):
         summary = run_step3_subtitle_policy(
             db_path=db_path,
             dispatch_after=True,
@@ -187,9 +188,9 @@ def test_english_subtitle_no_dispatch(tmp_path: Path) -> None:
         assert _get_state(conn, media_id) == "needs_audio_review"
 
 
-def test_uncertain_english_label_routes_to_generation(tmp_path: Path) -> None:
-    """A label with review_status='uncertain' must NOT count as confirmed English.
-    The file must be routed to needs_subtitle_generation, not needs_audio_review.
+def test_uncertain_english_label_routes_to_manual_review(tmp_path: Path) -> None:
+    """A label with review_status='uncertain' must route to needs_manual_subtitle_review.
+    It must NOT be dispatched to the subtitle worker.
     """
     db_path = tmp_path / "brain.db"
     media_id = "chain_test_003"
@@ -201,21 +202,26 @@ def test_uncertain_english_label_routes_to_generation(tmp_path: Path) -> None:
         _insert_label(conn, media_id, "embedded:0", "en", "uncertain")
         conn.commit()
 
-    with patch(
-        "services.media_brain.step4_dispatch._http_post",
-        side_effect=_fake_http_success,
-    ):
+    posted: list[dict] = []
+
+    def capture(url: str, payload: dict) -> dict:
+        posted.append(payload)
+        return _fake_http_success(url, payload)
+
+    with patch("services.media_brain.step4_audio_extraction._http_post", side_effect=capture):
         summary = run_step3_subtitle_policy(
             db_path=db_path,
             dispatch_after=True,
             worker_url="http://mock-worker:8100",
         )
 
-    assert summary.needs_subtitle_generation == 1
+    assert summary.needs_manual_subtitle_review == 1
+    assert summary.needs_subtitle_generation == 0
     assert summary.has_english_subtitle == 0
+    assert len(posted) == 0, "uncertain records must not be dispatched to the worker"
 
     with sqlite3.connect(db_path) as conn:
-        assert _get_state(conn, media_id) == QUEUED_STATE
+        assert _get_state(conn, media_id) == "needs_manual_subtitle_review"
 
 
 def test_full_chain_is_idempotent(tmp_path: Path) -> None:
@@ -238,8 +244,8 @@ def test_full_chain_is_idempotent(tmp_path: Path) -> None:
         post_count["n"] += 1
         return _fake_http_success(url, payload)
 
-    with patch("services.media_brain.step4_dispatch._http_post", side_effect=count_posts):
-        # First run: Step 3 evaluates, dispatch queues the job.
+    with patch("services.media_brain.step4_audio_extraction._http_post", side_effect=count_posts):
+        # First run: Step 3 evaluates, step4 extracts audio.
         run_step3_subtitle_policy(
             db_path=db_path,
             dispatch_after=True,
@@ -257,7 +263,7 @@ def test_full_chain_is_idempotent(tmp_path: Path) -> None:
     )
 
     with sqlite3.connect(db_path) as conn:
-        assert _get_state(conn, media_id) == QUEUED_STATE
+        assert _get_state(conn, media_id) == EXTRACTED_STATE
 
 
 def test_no_subtitle_labels_routes_to_generation(tmp_path: Path) -> None:
@@ -273,7 +279,7 @@ def test_no_subtitle_labels_routes_to_generation(tmp_path: Path) -> None:
         conn.commit()
 
     with patch(
-        "services.media_brain.step4_dispatch._http_post",
+        "services.media_brain.step4_audio_extraction._http_post",
         side_effect=_fake_http_success,
     ):
         summary = run_step3_subtitle_policy(
@@ -285,4 +291,4 @@ def test_no_subtitle_labels_routes_to_generation(tmp_path: Path) -> None:
     assert summary.needs_subtitle_generation == 1
 
     with sqlite3.connect(db_path) as conn:
-        assert _get_state(conn, media_id) == QUEUED_STATE
+        assert _get_state(conn, media_id) == EXTRACTED_STATE

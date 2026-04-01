@@ -16,9 +16,10 @@ class JobStatus(StrEnum):
 
 
 class SubtitleJobType(StrEnum):
-    generate = "generate"     # run faster-whisper on audio track
-    repair = "repair"         # fix malformed/mis-timed existing subtitle
-    translate = "translate"   # translate existing subtitle to target language
+    generate = "generate"           # run faster-whisper on audio track
+    extract_audio = "extract_audio" # extract audio track to WAV for downstream transcription
+    repair = "repair"               # fix malformed/mis-timed existing subtitle
+    translate = "translate"         # translate existing subtitle to target language
 
 
 class SubtitleJob(BaseModel):
@@ -51,3 +52,6 @@ class SubtitleJobResult(BaseModel):
     duration_seconds: float | None = None
     error_message: str | None = None
     notes: list[str] = Field(default_factory=list)
+    # Paths to intermediate files produced by extract_audio jobs (WAVs kept for
+    # downstream transcription). Empty for generate/repair/translate jobs.
+    artifact_paths: list[str] = Field(default_factory=list)

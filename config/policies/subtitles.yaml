@@ -24,4 +24,4 @@ domains:
   adult:
     keep_english: true
     generate_english_if_missing: true
-    require_review_below_confidence: 0.82
+    require_review_below_confidence: 0.90

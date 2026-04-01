@@ -19,6 +19,7 @@ log = logging.getLogger("subtitle_worker.worker")
 # faster-whisper availability is checked separately via _faster_whisper_available().
 _REQUIRED_TOOLS: dict[str, list[str]] = {
     "generate": ["ffmpeg", "ffprobe"],
+    "extract_audio": ["ffmpeg", "ffprobe"],
     "repair": [],
     "translate": [],
 }
@@ -296,6 +297,9 @@ class SubtitleWorker:
         if job.job_type.value == "generate":
             return self._run_generate(job, src, _result)
 
+        if job.job_type.value == "extract_audio":
+            return self._run_extract_audio(job, src, _result)
+
         # repair / translate — not yet implemented
         return _result(
             status=JobStatus.skipped,
@@ -431,6 +435,75 @@ class SubtitleWorker:
             output_path=str(output_path),
             detected_language=info.language,
             confidence=round(info.language_probability, 4),
+            notes=notes,
+        )
+
+
+    def _run_extract_audio(self, job: SubtitleJob, src: Path, _result) -> SubtitleJobResult:
+        """Extract the audio track to WAV file(s) without transcribing.
+
+        WAV files are intentionally kept on disk so a downstream transcription
+        job can consume them.  artifact_paths in the result lists every WAV
+        written (one for short files, N chunks for long ones).
+        """
+        stream_index = _pick_audio_stream(str(src), preferred_language=job.source_language)
+
+        scratch_dir = Path(job.scratch_dir) if job.scratch_dir else Path(_DEFAULT_SCRATCH_DIR)
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        wav_stem = job.media_id or job.job_id
+
+        duration = _get_media_duration(str(src))
+        chunked = duration is not None and duration > _CHUNK_THRESHOLD
+
+        if chunked:
+            log.info(
+                "job_id=%s duration=%.0fs > %ds — using chunked audio extraction",
+                job.job_id, duration, _CHUNK_THRESHOLD,
+            )
+            try:
+                chunk_list = _extract_audio_chunks(
+                    str(src), stream_index, scratch_dir, wav_stem, duration,
+                )
+            except subprocess.CalledProcessError as exc:
+                return _result(
+                    status=JobStatus.failed,
+                    error_message=f"audio extraction failed (exit {exc.returncode})",
+                )
+            except subprocess.TimeoutExpired:
+                return _result(
+                    status=JobStatus.failed,
+                    error_message="audio extraction timed out",
+                )
+            artifact_paths = [str(p) for p, _ in chunk_list]
+        else:
+            wav_path = scratch_dir / f"{wav_stem}.wav"
+            try:
+                _extract_audio(str(src), stream_index, str(wav_path))
+            except subprocess.CalledProcessError as exc:
+                return _result(
+                    status=JobStatus.failed,
+                    error_message=f"audio extraction failed (exit {exc.returncode})",
+                )
+            except subprocess.TimeoutExpired:
+                return _result(
+                    status=JobStatus.failed,
+                    error_message="audio extraction timed out",
+                )
+            artifact_paths = [str(wav_path)]
+            chunk_list = [(wav_path, 0.0)]
+
+        log.info(
+            "audio extraction complete job_id=%s stream_index=%d artifacts=%d",
+            job.job_id, stream_index, len(artifact_paths),
+        )
+
+        notes = [f"audio_stream={stream_index}", f"artifacts={len(artifact_paths)}"]
+        if chunked:
+            notes.append(f"chunks={len(chunk_list)}")
+
+        return _result(
+            status=JobStatus.complete,
+            artifact_paths=artifact_paths,
             notes=notes,
         )
 
