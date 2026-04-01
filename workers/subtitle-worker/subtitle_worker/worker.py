@@ -5,11 +5,11 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
 from .models import JobStatus, SubtitleJob, SubtitleJobResult
 
@@ -22,6 +22,15 @@ _REQUIRED_TOOLS: dict[str, list[str]] = {
     "repair": [],
     "translate": [],
 }
+
+# Scratch directory for intermediate WAV files.
+# Matches z4-media-01 /scratch (high-speed local NVMe); configurable per job.
+_DEFAULT_SCRATCH_DIR = "/scratch/whisper_staging"
+
+# Files longer than this (seconds) are chunked before transcription.
+_CHUNK_THRESHOLD = 7200    # 2 hours
+_CHUNK_DURATION = 1800     # 30-minute chunks
+_CHUNK_OVERLAP = 30        # 30-second overlap between adjacent chunks
 
 
 def _check_tools(job_type: str) -> list[str]:
@@ -37,12 +46,24 @@ def _faster_whisper_available() -> bool:
         return False
 
 
-def _pick_audio_stream(file_path: str) -> int:
+def _pick_audio_stream(file_path: str, preferred_language: str | None = None) -> int:
     """Use ffprobe to find the best audio stream index.
 
-    Preference: English audio track → first audio track → 0.
-    Honours the policy: preserve English audio when available.
+    When preferred_language is given (e.g. "ja" for JAV), that language is
+    selected first; falls back to the first audio track.  When
+    preferred_language is None the default policy applies: English audio is
+    preferred (preserve English audio when available), then first track.
     """
+    # Normalise tag variants so callers can pass ISO 639-1 or ISO 639-2.
+    _LANG_ALIASES: dict[str, set[str]] = {
+        "en": {"en", "eng"},
+        "ja": {"ja", "jpn"},
+    }
+    want: set[str] | None = None
+    if preferred_language:
+        key = preferred_language.lower()
+        want = _LANG_ALIASES.get(key, {key})
+
     try:
         out = subprocess.check_output(
             [
@@ -54,11 +75,24 @@ def _pick_audio_stream(file_path: str) -> int:
             timeout=30,
         )
         streams = json.loads(out).get("streams", [])
-        for s in streams:
-            lang = s.get("tags", {}).get("language", "").lower()
-            if lang in ("eng", "en"):
-                log.debug("ffprobe selected English stream index=%d", s["index"])
-                return s["index"]
+
+        if want:
+            for s in streams:
+                lang = s.get("tags", {}).get("language", "").lower()
+                if lang in want:
+                    log.debug(
+                        "ffprobe selected preferred language=%s stream index=%d",
+                        preferred_language, s["index"],
+                    )
+                    return s["index"]
+        else:
+            # Default: prefer English (policy: preserve English audio)
+            for s in streams:
+                lang = s.get("tags", {}).get("language", "").lower()
+                if lang in ("eng", "en"):
+                    log.debug("ffprobe selected English stream index=%d", s["index"])
+                    return s["index"]
+
         if streams:
             log.debug("ffprobe fallback to first audio stream index=%d", streams[0]["index"])
             return streams[0]["index"]
@@ -67,27 +101,91 @@ def _pick_audio_stream(file_path: str) -> int:
     return 0
 
 
-def _extract_audio(file_path: str, stream_index: int, tmp_dir: str) -> str:
+def _get_media_duration(file_path: str) -> float | None:
+    """Return file duration in seconds via ffprobe, or None on failure."""
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe", "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                file_path,
+            ],
+            timeout=30,
+        )
+        raw = json.loads(out).get("format", {}).get("duration")
+        return float(raw) if raw is not None else None
+    except Exception as exc:
+        log.warning("ffprobe duration probe failed: %s", exc)
+        return None
+
+
+def _extract_audio(
+    file_path: str,
+    stream_index: int,
+    out_path: str,
+    *,
+    start_seconds: float | None = None,
+    duration_seconds: float | None = None,
+) -> str:
     """Extract one audio stream to a 16 kHz mono WAV for whisper.
 
     16 kHz mono is the format faster-whisper expects for best accuracy.
+    Writes to out_path directly (caller is responsible for the directory).
+    start_seconds / duration_seconds enable chunked extraction.
     """
-    out_path = os.path.join(tmp_dir, "audio.wav")
+    cmd = ["ffmpeg", "-y"]
+    if start_seconds is not None:
+        cmd += ["-ss", str(start_seconds)]
+    cmd += ["-i", file_path]
+    if duration_seconds is not None:
+        cmd += ["-t", str(duration_seconds)]
+    cmd += [
+        "-map", f"0:{stream_index}",
+        "-ac", "1",
+        "-ar", "16000",
+        "-f", "wav",
+        out_path,
+    ]
     subprocess.check_call(
-        [
-            "ffmpeg", "-y",
-            "-i", file_path,
-            "-map", f"0:{stream_index}",
-            "-ac", "1",
-            "-ar", "16000",
-            "-f", "wav",
-            out_path,
-        ],
+        cmd,
         timeout=600,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     return out_path
+
+
+def _extract_audio_chunks(
+    file_path: str,
+    stream_index: int,
+    scratch_dir: Path,
+    wav_stem: str,
+    total_duration: float,
+) -> list[tuple[Path, float]]:
+    """Chunk a long file into 30-min WAV segments with 30-second overlap.
+
+    Returns a list of (wav_path, chunk_start_time_seconds) tuples.
+    """
+    step = _CHUNK_DURATION - _CHUNK_OVERLAP  # 1770 s between chunk starts
+    chunks: list[tuple[Path, float]] = []
+    chunk_index = 0
+    start = 0.0
+    while start < total_duration:
+        out_path = scratch_dir / f"{wav_stem}_chunk{chunk_index}.wav"
+        log.debug(
+            "extracting chunk %d start=%.1fs duration=%ds → %s",
+            chunk_index, start, _CHUNK_DURATION, out_path,
+        )
+        _extract_audio(
+            file_path, stream_index, str(out_path),
+            start_seconds=start,
+            duration_seconds=_CHUNK_DURATION,
+        )
+        chunks.append((out_path, start))
+        chunk_index += 1
+        start += step
+    return chunks
 
 
 def _write_srt(segments: list, output_path: Path) -> None:
@@ -211,43 +309,95 @@ class SubtitleWorker:
         output_dir = Path(job.output_dir) if job.output_dir else src.parent
         output_path = output_dir / f"{src.stem}.{job.target_language}.srt"
 
-        stream_index = _pick_audio_stream(str(src))
+        # JAV files: source_language="ja" → prefer first/Japanese audio track.
+        stream_index = _pick_audio_stream(str(src), preferred_language=job.source_language)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # Extract selected audio stream to a temp WAV
-            try:
-                wav_path = _extract_audio(str(src), stream_index, tmp_dir)
-            except subprocess.CalledProcessError as exc:
-                return _result(
-                    status=JobStatus.failed,
-                    error_message=f"audio extraction failed (exit {exc.returncode})",
-                )
-            except subprocess.TimeoutExpired:
-                return _result(
-                    status=JobStatus.failed,
-                    error_message="audio extraction timed out",
-                )
+        scratch_dir = Path(job.scratch_dir) if job.scratch_dir else Path(_DEFAULT_SCRATCH_DIR)
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        wav_stem = job.media_id or job.job_id
 
-            # Transcribe
+        # Track all WAV paths for cleanup in the finally block.
+        wav_paths: list[Path] = []
+        info = None
+        try:
+            duration = _get_media_duration(str(src))
+            chunked = duration is not None and duration > _CHUNK_THRESHOLD
+
+            if chunked:
+                log.info(
+                    "job_id=%s duration=%.0fs > %ds — using chunked audio extraction",
+                    job.job_id, duration, _CHUNK_THRESHOLD,
+                )
+                try:
+                    chunk_list = _extract_audio_chunks(
+                        str(src), stream_index, scratch_dir, wav_stem, duration,
+                    )
+                except subprocess.CalledProcessError as exc:
+                    return _result(
+                        status=JobStatus.failed,
+                        error_message=f"audio extraction failed (exit {exc.returncode})",
+                    )
+                except subprocess.TimeoutExpired:
+                    return _result(
+                        status=JobStatus.failed,
+                        error_message="audio extraction timed out",
+                    )
+                wav_paths = [p for p, _ in chunk_list]
+            else:
+                wav_path = scratch_dir / f"{wav_stem}.wav"
+                try:
+                    _extract_audio(str(src), stream_index, str(wav_path))
+                except subprocess.CalledProcessError as exc:
+                    return _result(
+                        status=JobStatus.failed,
+                        error_message=f"audio extraction failed (exit {exc.returncode})",
+                    )
+                except subprocess.TimeoutExpired:
+                    return _result(
+                        status=JobStatus.failed,
+                        error_message="audio extraction timed out",
+                    )
+                wav_paths = [wav_path]
+                chunk_list = [(wav_path, 0.0)]
+
+            # Transcribe — one pass per chunk, merge with absolute timestamps.
             try:
                 from faster_whisper import WhisperModel
                 model = WhisperModel(job.whisper_model, device="cpu", compute_type="int8")
-                segments_gen, info = model.transcribe(
-                    wav_path,
-                    language=job.source_language,
-                    beam_size=5,
-                )
-                segments = list(segments_gen)  # consume generator inside context
+                all_segments: list = []
+                for i, (chunk_wav, chunk_start) in enumerate(chunk_list):
+                    segs_gen, info = model.transcribe(
+                        str(chunk_wav),
+                        language=job.source_language,
+                        beam_size=5,
+                    )
+                    for seg in segs_gen:
+                        # Drop the overlap region from non-first chunks to avoid
+                        # duplicate speech at chunk boundaries.
+                        if i > 0 and seg.start < _CHUNK_OVERLAP:
+                            continue
+                        all_segments.append(SimpleNamespace(
+                            start=seg.start + chunk_start,
+                            end=seg.end + chunk_start,
+                            text=seg.text,
+                        ))
             except Exception as exc:
                 return _result(
                     status=JobStatus.failed,
                     error_message=f"transcription failed: {exc}",
                 )
 
-        # Write SRT (outside tmp_dir context — wav already consumed)
+        finally:
+            for p in wav_paths:
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError as exc:
+                    log.warning("failed to remove scratch WAV %s: %s", p, exc)
+
+        # Write SRT
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
-            _write_srt(segments, output_path)
+            _write_srt(all_segments, output_path)
         except OSError as exc:
             return _result(
                 status=JobStatus.failed,
@@ -257,23 +407,27 @@ class SubtitleWorker:
         log.info(
             "transcription complete job_id=%s lang=%s confidence=%.3f segments=%d output=%r",
             job.job_id, info.language, info.language_probability,
-            len(segments), str(output_path),
+            len(all_segments), str(output_path),
         )
 
         catalog_url = os.environ.get("CATALOG_API_URL", "").strip()
         if catalog_url and job.item_id:
             _notify_catalog(job.item_id, catalog_url)
 
+        notes = [
+            f"model={job.whisper_model}",
+            f"audio_stream={stream_index}",
+            f"segments={len(all_segments)}",
+        ]
+        if chunked:
+            notes.append(f"chunks={len(chunk_list)}")
+
         return _result(
             status=JobStatus.complete,
             output_path=str(output_path),
             detected_language=info.language,
             confidence=round(info.language_probability, 4),
-            notes=[
-                f"model={job.whisper_model}",
-                f"audio_stream={stream_index}",
-                f"segments={len(segments)}",
-            ],
+            notes=notes,
         )
 
 

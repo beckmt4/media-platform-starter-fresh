@@ -24,11 +24,14 @@ class SubtitleJobType(StrEnum):
 class SubtitleJob(BaseModel):
     job_id: str = Field(default_factory=lambda: str(uuid4()))
     item_id: str                          # catalog-api MediaItem.id
+    media_id: str | None = None           # media-brain media_id; used to name WAV on scratch
     file_path: str                        # source media file
     job_type: SubtitleJobType
     target_language: str = "en"           # ISO 639-1
     source_language: str | None = None    # None = auto-detect
     output_dir: str | None = None         # defaults alongside source file
+    # Scratch directory for intermediate WAV files (default: /scratch/whisper_staging)
+    scratch_dir: str | None = None
     # faster-whisper model size: tiny / base / small / medium / large-v3
     whisper_model: str = "large-v3"
     dry_run: bool = False                 # validate inputs, skip actual execution

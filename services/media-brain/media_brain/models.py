@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class MediaBrainState(StrEnum):
     needs_subtitle_review = "needs_subtitle_review"
+    needs_subtitle_generation = "needs_subtitle_generation"
     reviewed = "reviewed"
     error = "error"
 
