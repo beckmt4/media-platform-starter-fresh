@@ -9,3 +9,7 @@ coverage.xml
 *.egg-info/
 dist/
 build/
+check_media_brain_counts.py
+media_brain.db
+media_brain.step1.backup.db
+services/media-brain/media_brain.db
