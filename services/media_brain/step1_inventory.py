@@ -233,7 +233,6 @@ def upsert_media_record(
             audio_tracks_json=excluded.audio_tracks_json,
             subtitle_tracks_json=excluded.subtitle_tracks_json,
             sidecar_subtitles_json=excluded.sidecar_subtitles_json,
-            state=excluded.state,
             scanned_at=excluded.scanned_at
         """,
         (

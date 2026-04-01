@@ -24,8 +24,12 @@ _REQUIRED_TOOLS: dict[str, list[str]] = {
 }
 
 # Scratch directory for intermediate WAV files.
-# Matches z4-media-01 /scratch (high-speed local NVMe); configurable per job.
-_DEFAULT_SCRATCH_DIR = "/scratch/whisper_staging"
+# Authoritative path is config/storage-layout.yaml: subtitle_scratch_root.
+# Override at runtime with the SUBTITLE_SCRATCH_DIR environment variable.
+_DEFAULT_SCRATCH_DIR = os.environ.get(
+    "SUBTITLE_SCRATCH_DIR",
+    "/mnt/container/media-work/subtitle-scratch",
+)
 
 # Files longer than this (seconds) are chunked before transcription.
 _CHUNK_THRESHOLD = 7200    # 2 hours

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -248,8 +249,19 @@ def upsert_policy_decision(
 
 def run_step3_subtitle_policy(
     db_path: Path | str = DEFAULT_DB_PATH,
+    dispatch_after: bool = False,
+    worker_url: str = "",
 ) -> Step3Summary:
-    """Execute Step 3 and write policy decisions to the database."""
+    """Execute Step 3 and write policy decisions to the database.
+
+    Args:
+        db_path:        Path to media_brain.db.
+        dispatch_after: When True, immediately dispatch all records that land
+                        in needs_subtitle_generation to the subtitle worker.
+                        Requires step4_dispatch.py to be present.
+        worker_url:     Worker base URL used when dispatch_after=True.  Falls
+                        back to SUBTITLE_WORKER_URL env var then localhost:8100.
+    """
     db_path = Path(db_path)
     decided_at = utc_now_iso()
 
@@ -285,6 +297,22 @@ def run_step3_subtitle_policy(
 
         connection.commit()
 
+    if dispatch_after:
+        # Local import: step4_dispatch is an optional next step.  Importing at
+        # call time keeps step3 usable in environments where step4 is not yet
+        # deployed, and avoids a circular import at module load.
+        try:
+            from services.media_brain import step4_dispatch as _step4
+        except ImportError as exc:
+            raise Step3PolicyError(
+                "dispatch_after=True requires step4_dispatch.py in "
+                "services/media_brain/ but import failed: %s" % exc
+            ) from exc
+        _effective_url = worker_url or os.environ.get(
+            "SUBTITLE_WORKER_URL", "http://localhost:8100"
+        )
+        _step4.dispatch_pending_jobs(db_path=db_path, worker_url=_effective_url)
+
     return Step3Summary(db_path=db_path, **counts)
 
 
@@ -301,13 +329,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_DB_PATH),
         help="SQLite database created by Steps 1 and 2.",
     )
+    parser.add_argument(
+        "--dispatch-after",
+        action="store_true",
+        help=(
+            "Immediately dispatch needs_subtitle_generation records to the "
+            "subtitle worker after Step 3 completes."
+        ),
+    )
+    parser.add_argument(
+        "--worker-url",
+        default="",
+        help=(
+            "Subtitle worker base URL (used with --dispatch-after).  "
+            "Defaults to SUBTITLE_WORKER_URL env var or http://localhost:8100."
+        ),
+    )
     return parser
 
 
 def main() -> int:
     """CLI entry point."""
     args = build_arg_parser().parse_args()
-    summary = run_step3_subtitle_policy(db_path=args.db_path)
+    summary = run_step3_subtitle_policy(
+        db_path=args.db_path,
+        dispatch_after=args.dispatch_after,
+        worker_url=args.worker_url,
+    )
     import json as _json
     print(
         _json.dumps(

@@ -23,14 +23,17 @@ class SubtitleJobType(StrEnum):
 
 class SubtitleJob(BaseModel):
     job_id: str = Field(default_factory=lambda: str(uuid4()))
-    item_id: str                          # catalog-api MediaItem.id
+    # catalog-api MediaItem.id — optional so media_brain can dispatch without
+    # a catalog entry.  When absent, catalog notification is skipped.
+    item_id: str | None = None
     media_id: str | None = None           # media-brain media_id; used to name WAV on scratch
     file_path: str                        # source media file
     job_type: SubtitleJobType
     target_language: str = "en"           # ISO 639-1
     source_language: str | None = None    # None = auto-detect
     output_dir: str | None = None         # defaults alongside source file
-    # Scratch directory for intermediate WAV files (default: /scratch/whisper_staging)
+    # Scratch directory for intermediate WAV files.
+    # Defaults to the path in config/storage-layout.yaml (subtitle_scratch_root).
     scratch_dir: str | None = None
     # faster-whisper model size: tiny / base / small / medium / large-v3
     whisper_model: str = "large-v3"
@@ -39,7 +42,7 @@ class SubtitleJob(BaseModel):
 
 class SubtitleJobResult(BaseModel):
     job_id: str
-    item_id: str
+    item_id: str | None = None            # mirrors SubtitleJob.item_id
     status: JobStatus
     job_type: SubtitleJobType
     output_path: str | None = None        # generated/repaired subtitle file

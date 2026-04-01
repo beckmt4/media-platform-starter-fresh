@@ -103,3 +103,116 @@ def test_run_step1_inventory_writes_media_records(tmp_path: Path, monkeypatch) -
     assert audio_tracks[0]["language"] == "jpn"
     assert subtitle_tracks[0]["language"] == "eng"
     assert sidecars[0]["filename"] == "sample.en.srt"
+
+
+# ---------------------------------------------------------------------------
+# State-preservation tests (re-scan idempotency)
+# ---------------------------------------------------------------------------
+
+_MINIMAL_FFPROBE = {
+    "format": {"format_name": "matroska,webm", "duration": "30.0"},
+    "streams": [
+        {
+            "index": 0,
+            "codec_type": "video",
+            "codec_name": "h264",
+            "width": 1920,
+            "height": 1080,
+            "tags": {},
+            "disposition": {"default": 1, "forced": 0},
+        }
+    ],
+}
+
+
+def test_rescan_preserves_advanced_state(tmp_path: Path, monkeypatch) -> None:
+    """Re-scanning a file whose state has advanced past needs_subtitle_review
+    must not reset it back to the initial state.
+
+    This guards against the ON CONFLICT DO UPDATE bug where state=excluded.state
+    was included in the update set, silently undoing all Step 2/3 work.
+    """
+    scan_root = tmp_path / "library"
+    scan_root.mkdir()
+    media_file = scan_root / "movie.mkv"
+    media_file.write_bytes(b"fake-video-content")
+
+    monkeypatch.setattr(
+        "services.media_brain.step1_inventory.probe_media_file",
+        lambda _: _MINIMAL_FFPROBE,
+    )
+
+    db_path = tmp_path / "brain.db"
+
+    # First scan: record is inserted with state=needs_subtitle_review.
+    run_step1_inventory(scan_root=scan_root, db_path=db_path)
+
+    # Simulate Steps 2 and 3 advancing the state.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE media_records SET state = 'needs_audio_review'"
+        )
+        conn.commit()
+
+    # Second scan of the same file (same path + size → same media_id).
+    run_step1_inventory(scan_root=scan_root, db_path=db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT state FROM media_records WHERE file_name = 'movie.mkv'"
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == "needs_audio_review", (
+        "Re-scan must not reset state; got %r instead of 'needs_audio_review'" % row[0]
+    )
+
+
+def test_rescan_updates_ffprobe_json_but_preserves_state(tmp_path: Path, monkeypatch) -> None:
+    """Re-scan must refresh ffprobe data while leaving state untouched."""
+    scan_root = tmp_path / "library"
+    scan_root.mkdir()
+    media_file = scan_root / "show.mkv"
+    media_file.write_bytes(b"video-v1")
+
+    first_probe = dict(_MINIMAL_FFPROBE)
+    first_probe["format"] = {"format_name": "matroska,webm", "duration": "30.0", "version": "1"}
+
+    second_probe = dict(_MINIMAL_FFPROBE)
+    second_probe["format"] = {"format_name": "matroska,webm", "duration": "30.0", "version": "2"}
+
+    call_count = {"n": 0}
+
+    def fake_probe(_path):
+        call_count["n"] += 1
+        return first_probe if call_count["n"] == 1 else second_probe
+
+    monkeypatch.setattr(
+        "services.media_brain.step1_inventory.probe_media_file",
+        fake_probe,
+    )
+
+    db_path = tmp_path / "brain.db"
+    run_step1_inventory(scan_root=scan_root, db_path=db_path)
+
+    # Advance state before re-scan.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE media_records SET state = 'needs_subtitle_generation'")
+        conn.commit()
+
+    run_step1_inventory(scan_root=scan_root, db_path=db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT state, ffprobe_json FROM media_records WHERE file_name = 'show.mkv'"
+        ).fetchone()
+
+    assert row is not None
+    state, ffprobe_json_str = row
+    assert state == "needs_subtitle_generation", (
+        "State must not be reset by re-scan"
+    )
+    probe_data = json.loads(ffprobe_json_str)
+    assert probe_data["format"]["version"] == "2", (
+        "ffprobe_json must be refreshed on re-scan"
+    )
