@@ -3,6 +3,16 @@
 Reads subtitle tracks discovered during Step 1, trusts valid existing language tags,
 extracts text from suspicious or unknown tracks, runs local language detection,
 and stores one per-track review row in SQLite.
+
+Detector modes:
+- ``langdetect``: uses the langdetect library (default if lingua unavailable)
+- ``lingua``: uses lingua-language-detector (more accurate, higher memory)
+- ``auto``: prefers lingua when installed, falls back to langdetect
+
+Whisper fallback:
+When text extraction fails or the sample is too short, faster-whisper can be used
+to detect language from the media audio track (language detection only, no transcription).
+Disabled by default; enable via config or --whisper-fallback CLI flag.
 """
 
 from __future__ import annotations
@@ -13,7 +23,7 @@ import re
 import sqlite3
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +32,13 @@ DEFAULT_DB_PATH = Path("media_brain.db")
 DEFAULT_TEMP_ROOT = Path("temp/media_brain_step2")
 LANGUAGE_CONFIDENCE_THRESHOLD = 0.90
 TARGET_MEDIA_STATE = "needs_subtitle_review"
+
+# Config defaults
+DEFAULT_DETECTOR_MODE = "auto"
+DEFAULT_CONFIDENCE_THRESHOLD = 0.90
+DEFAULT_MIN_SAMPLE_LENGTH = 20
+DEFAULT_WHISPER_FALLBACK_ENABLED = False
+DEFAULT_WHISPER_MODEL = "base"
 
 IMAGE_BASED_SUBTITLE_CODECS = {
     "hdmv_pgs_subtitle",
@@ -119,6 +136,26 @@ SIDECAR_EXTENSION_TO_CODEC = {
 
 class SubtitleLanguageDetectionError(RuntimeError):
     """Raised when Step 2 cannot complete a required subtitle task."""
+
+
+@dataclass(slots=True)
+class Step2Config:
+    """Runtime configuration for Step 2 language detection."""
+
+    detector_mode: str = DEFAULT_DETECTOR_MODE
+    """``auto`` | ``lingua`` | ``langdetect``"""
+
+    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
+    """Minimum confidence to store a result as ``detected`` (default 0.90)."""
+
+    min_sample_length: int = DEFAULT_MIN_SAMPLE_LENGTH
+    """Minimum cleaned-text length before running a text detector."""
+
+    whisper_fallback_enabled: bool = DEFAULT_WHISPER_FALLBACK_ENABLED
+    """Whether to fall back to Whisper audio language detection."""
+
+    whisper_model: str = DEFAULT_WHISPER_MODEL
+    """faster-whisper model size placeholder (e.g. ``base``, ``small``)."""
 
 
 @dataclass(slots=True)
@@ -340,11 +377,13 @@ def clean_subtitle_text(raw_text: str, codec_name: str | None = None) -> str:
     return cleaned[:2000]
 
 
-def detect_language_from_text(sample_text: str) -> tuple[str | None, float, str]:
-    """Detect language and confidence from subtitle text using local Python libraries."""
-    if not sample_text.strip():
-        return None, 0.0, "no_text"
+# ---------------------------------------------------------------------------
+# Detector back-ends (private helpers)
+# ---------------------------------------------------------------------------
 
+
+def _detect_with_langdetect(sample_text: str) -> tuple[str | None, float, str]:
+    """Detect language using the langdetect library."""
     try:
         from langdetect import DetectorFactory, detect_langs
     except ImportError as exc:
@@ -359,8 +398,89 @@ def detect_language_from_text(sample_text: str) -> tuple[str | None, float, str]
 
     best = ranked[0]
     normalized = normalize_language_tag(best.lang)
-    confidence = float(best.prob)
-    return normalized, confidence, "langdetect"
+    return normalized, float(best.prob), "langdetect"
+
+
+def _detect_with_lingua(sample_text: str) -> tuple[str | None, float, str]:
+    """Detect language using lingua-language-detector."""
+    try:
+        from lingua import LanguageDetectorBuilder
+    except ImportError as exc:
+        raise SubtitleLanguageDetectionError(
+            "lingua-language-detector is not installed. Run 'pip install lingua-language-detector'."
+        ) from exc
+
+    detector = LanguageDetectorBuilder.from_all_languages().build()
+    results = detector.compute_language_confidence_values(sample_text)
+    if not results:
+        return None, 0.0, "lingua"
+
+    best = results[0]
+    # lingua Language enum: .iso_code_639_1.name is uppercase 2-letter code
+    lang_code = best.language.iso_code_639_1.name.lower()
+    normalized = normalize_language_tag(lang_code)
+    return normalized, float(best.value), "lingua"
+
+
+def detect_language_from_text(
+    sample_text: str,
+    config: Step2Config | None = None,
+) -> tuple[str | None, float, str]:
+    """Detect language from subtitle text using the configured detector.
+
+    Returns ``(language, confidence, engine_name)``.
+    Returns ``(None, 0.0, "no_text")`` when the sample is empty or too short.
+    """
+    if config is None:
+        config = Step2Config()
+
+    if not sample_text.strip() or len(sample_text.strip()) < config.min_sample_length:
+        return None, 0.0, "no_text"
+
+    mode = config.detector_mode
+
+    if mode == "lingua":
+        return _detect_with_lingua(sample_text)
+
+    if mode == "langdetect":
+        return _detect_with_langdetect(sample_text)
+
+    # auto: prefer lingua, fall back to langdetect
+    try:
+        return _detect_with_lingua(sample_text)
+    except SubtitleLanguageDetectionError:
+        pass
+
+    return _detect_with_langdetect(sample_text)
+
+
+def detect_language_with_whisper(
+    media_path: Path,
+    config: Step2Config,
+) -> tuple[str | None, float, str]:
+    """Detect language from a media file's audio using faster-whisper.
+
+    This performs language detection only — no transcription output is produced.
+    Returns ``(language, confidence, "whisper_language")``.
+    """
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise SubtitleLanguageDetectionError(
+            "faster-whisper is not installed. Run 'pip install faster-whisper'."
+        ) from exc
+
+    model = WhisperModel(config.whisper_model, device="cpu", compute_type="int8")
+    # transcribe() eagerly runs language detection before yielding any segments
+    _segments, info = model.transcribe(str(media_path), beam_size=1)
+    lang = normalize_language_tag(info.language)
+    confidence = float(info.language_probability)
+    return lang, confidence, "whisper_language"
+
+
+# ---------------------------------------------------------------------------
+# Per-track processing
+# ---------------------------------------------------------------------------
 
 
 def upsert_track_label(
@@ -446,6 +566,27 @@ def upsert_track_label(
     )
 
 
+def _resolve_language_from_text_or_whisper(
+    sample_text: str,
+    media_path: Path,
+    config: Step2Config,
+) -> tuple[str | None, float, str]:
+    """Run text detection, falling back to Whisper when text is insufficient.
+
+    Returns ``(detected_language, confidence, engine_name)``.
+    """
+    if len(sample_text.strip()) >= config.min_sample_length:
+        return detect_language_from_text(sample_text, config)
+
+    if config.whisper_fallback_enabled:
+        try:
+            return detect_language_with_whisper(media_path, config)
+        except SubtitleLanguageDetectionError:
+            return None, 0.0, "whisper_language"
+
+    return None, 0.0, "no_text"
+
+
 def process_embedded_track(
     connection: sqlite3.Connection,
     *,
@@ -454,8 +595,10 @@ def process_embedded_track(
     track: dict[str, Any],
     temp_root: Path,
     scanned_at: str,
+    config: Step2Config | None = None,
 ) -> str:
     """Process one embedded subtitle track and persist the result."""
+    config = config or Step2Config()
     stream_index = track.get("index")
     codec_name = track.get("codec_name")
     existing_tag = track.get("language")
@@ -506,10 +649,23 @@ def process_embedded_track(
         )
         return "needs_ocr"
 
-    raw_text = extract_embedded_subtitle_text(media_path, int(stream_index), temp_root)
-    sample_text = clean_subtitle_text(raw_text, codec_name=codec_name)
-    detected_language, confidence, engine = detect_language_from_text(sample_text)
-    review_status = "detected" if confidence > LANGUAGE_CONFIDENCE_THRESHOLD and detected_language else "uncertain"
+    # Attempt text extraction; on failure use Whisper if enabled, else re-raise.
+    try:
+        raw_text = extract_embedded_subtitle_text(media_path, int(stream_index), temp_root)
+        sample_text = clean_subtitle_text(raw_text, codec_name=codec_name)
+    except SubtitleLanguageDetectionError:
+        if not config.whisper_fallback_enabled:
+            raise
+        sample_text = ""
+
+    detected_language, confidence, engine = _resolve_language_from_text_or_whisper(
+        sample_text, media_path, config
+    )
+    review_status = (
+        "detected"
+        if confidence > config.confidence_threshold and detected_language
+        else "uncertain"
+    )
 
     upsert_track_label(
         connection,
@@ -540,8 +696,10 @@ def process_sidecar_track(
     media_path: Path,
     sidecar: dict[str, Any],
     scanned_at: str,
+    config: Step2Config | None = None,
 ) -> str:
     """Process one sidecar subtitle file and persist the result."""
+    config = config or Step2Config()
     sidecar_path = Path(sidecar["path"])
     codec_name = SIDECAR_EXTENSION_TO_CODEC.get(sidecar_path.suffix.lower(), sidecar_path.suffix.lower())
     existing_tag = infer_sidecar_language_tag(sidecar_path, media_path)
@@ -572,8 +730,15 @@ def process_sidecar_track(
 
     raw_text = read_sidecar_subtitle_text(sidecar_path)
     sample_text = clean_subtitle_text(raw_text, codec_name=codec_name)
-    detected_language, confidence, engine = detect_language_from_text(sample_text)
-    review_status = "detected" if confidence > LANGUAGE_CONFIDENCE_THRESHOLD and detected_language else "uncertain"
+
+    detected_language, confidence, engine = _resolve_language_from_text_or_whisper(
+        sample_text, media_path, config
+    )
+    review_status = (
+        "detected"
+        if confidence > config.confidence_threshold and detected_language
+        else "uncertain"
+    )
 
     upsert_track_label(
         connection,
@@ -600,10 +765,12 @@ def process_sidecar_track(
 def run_step2_subtitle_language_detection(
     db_path: Path | str = DEFAULT_DB_PATH,
     temp_root: Path | str = DEFAULT_TEMP_ROOT,
+    config: Step2Config | None = None,
 ) -> Step2Summary:
     """Execute Step 2 and persist per-track subtitle language labels."""
     db_path = Path(db_path)
     temp_root = Path(temp_root)
+    config = config or Step2Config()
     scanned_at = utc_now_iso()
 
     counts = {
@@ -635,6 +802,7 @@ def run_step2_subtitle_language_detection(
                         track=track,
                         temp_root=temp_root,
                         scanned_at=scanned_at,
+                        config=config,
                     )
                     counts[status] += 1
                 except (OSError, ValueError, SubtitleLanguageDetectionError):
@@ -649,6 +817,7 @@ def run_step2_subtitle_language_detection(
                         media_path=media_path,
                         sidecar=sidecar,
                         scanned_at=scanned_at,
+                        config=config,
                     )
                     counts[status] += 1
                 except (OSError, ValueError, SubtitleLanguageDetectionError):
@@ -674,15 +843,52 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_TEMP_ROOT),
         help="Temporary working directory for extracted subtitle text.",
     )
+    parser.add_argument(
+        "--detector-mode",
+        default=DEFAULT_DETECTOR_MODE,
+        choices=["auto", "lingua", "langdetect"],
+        help="Language detector to use (default: auto).",
+    )
+    parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=DEFAULT_CONFIDENCE_THRESHOLD,
+        help="Minimum confidence to store result as detected (default: 0.90).",
+    )
+    parser.add_argument(
+        "--min-sample-length",
+        type=int,
+        default=DEFAULT_MIN_SAMPLE_LENGTH,
+        help="Minimum sample character count before running text detection (default: 20).",
+    )
+    parser.add_argument(
+        "--whisper-fallback",
+        action="store_true",
+        default=DEFAULT_WHISPER_FALLBACK_ENABLED,
+        help="Enable Whisper audio language detection fallback.",
+    )
+    parser.add_argument(
+        "--whisper-model",
+        default=DEFAULT_WHISPER_MODEL,
+        help="faster-whisper model size to use for fallback (default: base).",
+    )
     return parser
 
 
 def main() -> int:
     """CLI entry point."""
     args = build_arg_parser().parse_args()
+    config = Step2Config(
+        detector_mode=args.detector_mode,
+        confidence_threshold=args.confidence_threshold,
+        min_sample_length=args.min_sample_length,
+        whisper_fallback_enabled=args.whisper_fallback,
+        whisper_model=args.whisper_model,
+    )
     summary = run_step2_subtitle_language_detection(
         db_path=args.db_path,
         temp_root=args.temp_root,
+        config=config,
     )
     print(
         json.dumps(
